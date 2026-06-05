@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl import DESCRIPTION_DIR
 from gap_rl.agents.base_agent import BaseAgent, parse_urdf_config
 from gap_rl.agents.configs.ur5e_robotiq85_old import defaults
@@ -105,17 +105,34 @@ class UR5e_Robotiq85_old(BaseAgent):
         return ee_coords
 
     def _load_articulation(self):
+        # SAPIEN 2
+        # loader = self.scene.create_urdf_loader()
+        # TODO(SAPIEN3):
+        # Verify URDF loader API in SAPIEN 3
         loader = self.scene.create_urdf_loader()
 
         urdf_path = str(self.urdf_path)
         urdf_path = urdf_path.format(description=DESCRIPTION_DIR)
         urdf_config = parse_urdf_config(self.urdf_config, self.scene)
 
+        # SAPIEN 2
+        # builder = loader.load_file_as_articulation_builder(urdf_path, urdf_config)
+        # TODO(SAPIEN3):
+        # Verify URDF builder API in SAPIEN 3
         builder = loader.load_file_as_articulation_builder(urdf_path, urdf_config)
 
         # Disable self collision for simplification
+        # SAPIEN 2
+        # for link_builder in builder.get_link_builders():
+        #     link_builder.set_collision_groups(1, 1, 2, 0)
+        # TODO(SAPIEN3):
+        # Verify collision group API in SAPIEN 3
         for link_builder in builder.get_link_builders():
             link_builder.set_collision_groups(1, 1, 2, 0)
+        # SAPIEN 2
+        # self.robot = builder.build(fix_root_link=self.fix_root_link)
+        # TODO(SAPIEN3):
+        # Verify articulation builder build signature in SAPIEN 3
         self.robot = builder.build(fix_root_link=self.fix_root_link)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
         self.robot.set_name(Path(urdf_path).stem)

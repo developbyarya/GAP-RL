@@ -2,7 +2,7 @@ from collections import OrderedDict
 from typing import Dict, List, Sequence
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl.utils.sapien_utils import get_entity_by_name
 from gym import spaces
 
@@ -54,10 +54,14 @@ class CameraConfig:
 
     @property
     def pose(self):
+        # SAPIEN 2
+        # return sapien.Pose(self.p, self.q)
+        # TODO(SAPIEN3):
+        # Verify Pose import path in SAPIEN 3
         return sapien.Pose(self.p, self.q)
 
     @pose.setter
-    def pose(self, pose: sapien.Pose):
+    def pose(self, pose: "sapien.Pose"):
         self.p = pose.p
         self.q = pose.q
 
@@ -120,9 +124,9 @@ class Camera:
     def __init__(
         self,
         camera_cfg: CameraConfig,
-        scene: sapien.Scene,
+        scene: "sapien.Scene",
         renderer_type: str,
-        articulation: sapien.Articulation = None,
+        articulation: "sapien.Articulation" = None,
     ):
         self.camera_cfg = camera_cfg
         self.renderer_type = renderer_type
@@ -140,6 +144,10 @@ class Camera:
 
         # Add camera
         if self.actor is None:
+            # SAPIEN 2
+            # self.camera = scene.add_camera(
+            # TODO(SAPIEN3):
+            # Verify camera creation API in SAPIEN 3
             self.camera = scene.add_camera(
                 camera_cfg.uid,
                 camera_cfg.width,
@@ -150,6 +158,10 @@ class Camera:
             )
             self.camera.set_local_pose(camera_cfg.pose)
         else:
+            # SAPIEN 2
+            # self.camera = scene.add_mounted_camera(
+            # TODO(SAPIEN3):
+            # Verify mounted camera API in SAPIEN 3
             self.camera = scene.add_mounted_camera(
                 camera_cfg.uid,
                 self.actor,

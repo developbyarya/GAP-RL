@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Type, Union
 
 import gym
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gym import spaces
 from gym.vector.utils.shared_memory import *
 
@@ -168,7 +168,11 @@ class VecEnv:
             server_address = find_available_port()
         self.server_address = server_address
         server_kwargs = {} if server_kwargs is None else server_kwargs
-        self.server = sapien.RenderServer(**server_kwargs)
+        # SAPIEN 2
+        # self.server = sapien.RenderServer(**server_kwargs)
+        # TODO(SAPIEN3):
+        # Verify RenderServer location in SAPIEN 3
+        self.server = sapien.render.RenderServer(**server_kwargs)
         self.server.start(self.server_address)
         logger.info(f"RenderServer is running at: {server_address}")
 
@@ -209,6 +213,10 @@ class VecEnv:
 
         # Allocate torch buffers
         # A list of [n_envs, n_cams, H, W, C] tensors
+        # SAPIEN 2
+        # self._obs_torch_buffer = self.server.auto_allocate_torch_tensors(self.texture_names)
+        # TODO(SAPIEN3):
+        # Verify RenderServer tensor allocation API in SAPIEN 3
         self._obs_torch_buffer: List[
             torch.Tensor
         ] = self.server.auto_allocate_torch_tensors(self.texture_names)

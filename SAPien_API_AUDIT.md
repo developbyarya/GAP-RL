@@ -1,0 +1,390 @@
+# SAPien API Audit (SAPIEN 2.x)
+
+This audit lists all SAPIEN API usages found in the repository, grouped by category.
+Each entry includes file, line, symbol/API, and usage context.
+
+## Rendering
+
+- `gap_rl/envs/base_env.py:105` `sapien.SapienRenderer` - create renderer for offscreen/onscreen rendering
+- `gap_rl/envs/base_env.py:108` `sapien.render_config` - set `camera_shader_dir` and `viewer_shader_dir`
+- `gap_rl/envs/base_env.py:110` `sapien.render_config` - set RT parameters (`rt_samples_per_pixel`, `rt_max_path_depth`, `rt_use_denoiser`)
+- `gap_rl/envs/base_env.py:124` `sapien.render_config` - dynamic attribute set from `render_config`
+- `gap_rl/envs/base_env.py:126` `SapienRenderer.set_log_level` - control renderer log level
+- `gap_rl/envs/base_env.py:128` `sapien.RenderClient` - create client renderer (networked)
+- `gap_rl/envs/base_env.py:132` `Engine.set_renderer` - attach renderer to engine
+- `gap_rl/envs/base_env.py:279` `Scene.update_render` - sync simulator to renderer
+- `gap_rl/envs/base_env.py:304` `Scene._update_render_and_take_pictures` - internal combined update for client renderer
+- `gap_rl/envs/base_env.py:366` `Renderer.create_material` - create render material for ground
+- `gap_rl/envs/base_env.py:445` `Scene.create_actor_builder` - create actor builder for background visuals
+- `gap_rl/envs/base_env.py:446` `ActorBuilder.add_visual_from_file` - load visual background mesh
+- `gap_rl/envs/base_env.py:666` `sapien.utils.Viewer` - create interactive viewer
+- `gap_rl/envs/pick_single.py:1308` `_renderer._internal_context` - access internal renderer context for line sets
+- `gap_rl/envs/pick_single.py:1311` `renderer_scene._internal_scene.add_line_set` - add line set for workspace
+- `gap_rl/envs/pick_single.py:1322` `_renderer._internal_context` - create line set for trajectory
+- `gap_rl/envs/pick_single.py:1324` `renderer_scene._internal_scene.add_line_set` - add line set for trajectory
+- `gap_rl/envs/pick_single.py:1337` `_renderer._internal_context` - create line set for bbox
+- `gap_rl/envs/pick_single.py:1340` `renderer_scene._internal_scene.add_line_set` - add line set for bbox
+- `gap_rl/envs/pick_single.py:1390` `_renderer._internal_context` - create line set for grasps
+- `gap_rl/envs/pick_single.py:1393` `renderer_scene._internal_scene.add_line_set` - add line set for grasps
+- `gap_rl/envs/pick_single.py:1431` `_renderer._internal_context` - create line set for annotated grasps
+- `gap_rl/envs/pick_single.py:1434` `renderer_scene._internal_scene.add_line_set` - add line set for annotated grasps
+- `gap_rl/envs/pick_single.py:1468` `_renderer._internal_context` - create line set for predicted grasps
+- `gap_rl/envs/pick_single.py:1471` `renderer_scene._internal_scene.add_line_set` - add line set for predicted grasps
+- `gap_rl/envs/pick_single.py:1476` `renderer_scene._internal_scene.remove_node` - remove line set
+- `gap_rl/envs/pick_single.py:1768` `Renderer.create_material` - create render material for ACRONYM assets
+- `gap_rl/envs/pick_single.py:1893` `Renderer.create_material` - create render material for Graspnet assets
+- `gap_rl/envs/pick_single.py:2092` `Renderer.create_material` - create render material for EGAD assets
+- `gap_rl/utils/sapien_utils.py:335` `sapien.RenderMaterial` - set render material properties
+- `gap_rl/utils/sapien_utils.py:344` `sapien.RenderMaterial` - assign render material on articulation links
+
+## Scene
+
+- `gap_rl/envs/base_env.py:98` `sapien.Engine` - create simulation engine
+- `gap_rl/envs/base_env.py:279` `Scene.update_render` - update renderer state
+- `gap_rl/envs/base_env.py:373` `Scene.add_ground` - add ground plane
+- `gap_rl/envs/base_env.py:414` `Scene.set_ambient_light` - set ambient light
+- `gap_rl/envs/base_env.py:416` `Scene.add_directional_light` - add directional lights
+- `gap_rl/envs/base_env.py:426` `Scene.get_all_lights` - enumerate lights
+- `gap_rl/envs/base_env.py:427` `Scene.remove_light` - remove light
+- `gap_rl/envs/base_env.py:436` `Scene.add_point_light` - add point light
+- `gap_rl/envs/base_env.py:501` `Scene.get_all_actors` - enumerate actors
+- `gap_rl/envs/base_env.py:505` `Scene.get_all_articulations` - enumerate articulations
+- `gap_rl/envs/base_env.py:539` `Scene.step` - step simulation
+- `gap_rl/envs/base_env.py:566` `sapien.SceneConfig` - configure scene parameters
+- `gap_rl/envs/base_env.py:585` `Engine.create_scene` - create scene with config
+- `gap_rl/envs/base_env.py:586` `Scene.set_timestep` - set simulation timestep
+- `gap_rl/envs/base_env.py:612` `Scene.get_all_actors` - cache actors for sim state
+- `gap_rl/envs/base_env.py:616` `Scene.get_all_articulations` - cache articulations for sim state
+- `gap_rl/envs/base_env.py:735` `Scene.get_all_articulations` - collect articulations for point cloud
+- `gap_rl/envs/base_env.py:742` `Scene.get_all_actors` - collect actors for point cloud
+- `gap_rl/envs/pick_single.py:195` `Scene.create_actor_builder` - create object builders
+- `gap_rl/envs/pick_single.py:212` `Scene.create_physical_material` - create physical material
+- `gap_rl/envs/pick_single.py:242` `Scene.create_drive` - create drive constraint for conveyor
+- `gap_rl/envs/pick_single.py:355` `Scene.step` - settle physics
+- `gap_rl/envs/pick_single.py:507` `Drive.set_x_properties` - configure drive stiffness/damping
+- `gap_rl/envs/pick_single.py:508` `Drive.set_y_properties` - configure drive stiffness/damping
+- `gap_rl/envs/pick_single.py:509` `Drive.set_z_properties` - configure drive stiffness/damping
+- `gap_rl/envs/pick_single.py:510` `Drive.set_slerp_properties` - configure drive slerp
+- `gap_rl/envs/pick_single.py:1035` `Actor.add_force_at_point` - apply force for conveyor
+- `gap_rl/envs/pick_single.py:1577` `Scene.create_physical_material` - YCB material
+- `gap_rl/envs/pick_single.py:1647` `Scene.create_physical_material` - YCB v1 material
+- `gap_rl/envs/pick_single.py:1774` `Scene.create_physical_material` - ACRONYM material
+- `gap_rl/envs/pick_single.py:1900` `Scene.create_physical_material` - Graspnet material
+- `gap_rl/envs/pick_single.py:2119` `Scene.create_physical_material` - EGAD material
+- `gap_rl/utils/sapien_utils.py:32` `Scene.default_physical_material` - set default physical material
+- `gap_rl/utils/sapien_utils.py:112` `Scene.create_physical_material` - create global physical material
+- `gap_rl/utils/sapien_utils.py:117` `Scene.create_physical_material` - create per-link materials
+
+## Actor
+
+- `gap_rl/envs/base_env.py:501` `Actor.type` - check static/kinematic
+- `gap_rl/envs/base_env.py:503` `Actor.set_velocity` - clear linear velocity
+- `gap_rl/envs/base_env.py:504` `Actor.set_angular_velocity` - clear angular velocity
+- `gap_rl/envs/base_env.py:742` `Actor.get_pose` - transform meshes to world
+- `gap_rl/envs/base_env.py:744` `Actor.get_pose` - apply transform to meshes
+- `gap_rl/envs/base_env.py:446` `ActorBuilder.add_visual_from_file` - add visual shape
+- `gap_rl/envs/base_env.py:447` `ActorBuilder.build_kinematic` - build kinematic actor
+- `gap_rl/envs/base_env.py:448` `Actor.set_pose` - place visual background
+- `gap_rl/envs/pick_single.py:181` `ActorBuilder.add_sphere_visual` - create sphere visual
+- `gap_rl/envs/pick_single.py:182` `ActorBuilder.build_static` - build static sphere
+- `gap_rl/envs/pick_single.py:200` `ActorBuilder.build` - build box actor
+- `gap_rl/envs/pick_single.py:202` `Actor.hide_visual` - hide visual
+- `gap_rl/envs/pick_single.py:203` `Actor.set_pose` - set actor pose
+- `gap_rl/envs/pick_single.py:209` `Actor.set_damping` - set linear/angular damping
+- `gap_rl/envs/pick_single.py:237` `Actor.pose` - read drive base pose
+- `gap_rl/envs/pick_single.py:241` `Pose.inv` - compute relative pose for drive
+- `gap_rl/envs/pick_single.py:1032` `Actor.set_pose` - update drive base pose
+- `gap_rl/envs/pick_single.py:1036` `Actor.get_mass` - compute force magnitude
+- `gap_rl/envs/pick_single.py:1037` `Actor.pose` - apply force at point
+- `gap_rl/envs/pick_single.py:1057` `Actor.get_velocity` - object velocity for reward
+- `gap_rl/envs/pick_single.py:1163` `Actor.get_velocity` - object velocity in reward
+- `gap_rl/envs/pick_single.py:1164` `Actor.get_angular_velocity` - object angular velocity
+- `gap_rl/envs/pick_single.py:1176` `Pose` - vectorize pose in info
+- `gap_rl/envs/pick_single.py:1517` `Scene.create_actor_builder` - build YCB actor
+- `gap_rl/envs/pick_single.py:1521` `ActorBuilder.add_multiple_collisions_from_file` - add collision geometry
+- `gap_rl/envs/pick_single.py:1529` `ActorBuilder.add_visual_from_file` - add visual geometry
+- `gap_rl/envs/pick_single.py:1531` `ActorBuilder.build` - build YCB actor
+- `gap_rl/envs/pick_single.py:1588` `Actor.name` - set actor name
+- `gap_rl/envs/pick_single.py:1658` `Actor.name` - set actor name (v1)
+- `gap_rl/envs/pick_single.py:1660` `ActorBuilder.build` - build actor (v1)
+- `gap_rl/envs/pick_single.py:1768` `ActorBuilder.add_multiple_collisions_from_file` - ACRONYM collision
+- `gap_rl/envs/pick_single.py:1793` `ActorBuilder.add_visual_from_file` - ACRONYM visual
+- `gap_rl/envs/pick_single.py:1798` `ActorBuilder.build` - build ACRONYM actor
+- `gap_rl/envs/pick_single.py:1921` `ActorBuilder.build` - build Graspnet actor
+- `gap_rl/envs/pick_single.py:1985` `ActorBuilder.add_multiple_collisions_from_file` - EGAD collision
+- `gap_rl/envs/pick_single.py:1993` `ActorBuilder.add_visual_from_file` - EGAD visual
+- `gap_rl/envs/pick_single.py:1997` `ActorBuilder.build` - build EGAD actor
+- `gap_rl/utils/sapien_utils.py:25` `Actor.get_visual_bodies` - iterate visual bodies
+- `gap_rl/utils/sapien_utils.py:26` `RenderBody.set_visibility` - set visibility
+- `gap_rl/utils/sapien_utils.py:130` `Actor.get_pose` - serialize actor pose
+- `gap_rl/utils/sapien_utils.py:132` `Actor.type` - check static/kinematic
+- `gap_rl/utils/sapien_utils.py:136` `Actor.get_velocity` - serialize velocity
+- `gap_rl/utils/sapien_utils.py:137` `Actor.get_angular_velocity` - serialize angular velocity
+- `gap_rl/utils/sapien_utils.py:141` `Actor.set_pose` - set pose from state
+- `gap_rl/utils/sapien_utils.py:145` `Actor.set_velocity` - set linear velocity
+- `gap_rl/utils/sapien_utils.py:146` `Actor.set_angular_velocity` - set angular velocity
+- `gap_rl/utils/sapien_utils.py:372` `Actor.velocity` - check actor linear velocity
+- `gap_rl/utils/sapien_utils.py:375` `Actor.angular_velocity` - check actor angular velocity
+- `gap_rl/utils/trimesh_utils.py:11` `Actor.get_collision_shapes` - iterate collision shapes
+- `gap_rl/utils/trimesh_utils.py:55` `Actor.get_visual_bodies` - iterate visual bodies
+- `gap_rl/utils/trimesh_utils.py:78` `Actor.pose` - mesh transform to world
+- `gap_rl/utils/trimesh_utils.py:88` `Actor.pose` - visual mesh transform to world
+- `gap_rl/utils/geometry.py:176` `Actor.get_collision_shapes` - compute AABB
+- `gap_rl/utils/geometry.py:183` `Actor.get_pose` - transform collision shapes
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:36` `ActorBase` - type check for grasp
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:40` `Scene.get_contacts` - fetch contacts for grasp
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:44` `Link.pose` - use link pose for contact direction
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:60` `ActorBase` - type check for finger contact
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:72` `Scene.get_contacts` - fetch contacts for grasp
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:98` `Link.get_pose` - transform mesh sample
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:101` `Link.get_pose` - transform mesh sample
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:123` `Link.get_id` - cache link ids
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:124` `Link.get_collision_shapes` - collect collision actors
+
+## Articulation
+
+- `gap_rl/envs/base_env.py:506` `Articulation.set_qvel` - clear joint velocity
+- `gap_rl/envs/base_env.py:507` `Articulation.set_root_velocity` - clear root velocity
+- `gap_rl/envs/base_env.py:508` `Articulation.set_root_angular_velocity` - clear root angular velocity
+- `gap_rl/envs/base_env.py:615` `Scene.get_all_articulations` - list articulations
+- `gap_rl/envs/base_env.py:635` `Articulation.dof` - compute state size
+- `gap_rl/envs/base_env.py:737` `Articulation.get_links` - enumerate links
+- `gap_rl/envs/base_env.py:739` `Articulation` - used by `get_articulation_meshes`
+- `gap_rl/envs/pick_single.py:258` `Articulation` - create agent instance
+- `gap_rl/envs/pick_single.py:261` `Articulation.get_links` - find TCP link
+- `gap_rl/envs/pick_single.py:264` `Articulation` - render material for agent
+- `gap_rl/envs/pick_single.py:506` `Drive` - configure articulation drive (conveyor)
+- `gap_rl/envs/pick_single.py:1053` `Articulation.get_qvel` - check robot static
+- `gap_rl/envs/pick_single.py:1169` `Articulation.get_qvel` - reward calculation
+- `gap_rl/envs/pick_single.py:1170` `Articulation.get_qacc` - reward calculation
+- `gap_rl/envs/pick_single.py:1171` `Articulation.get_qf` - reward calculation
+- `gap_rl/agents/base_agent.py:75` `Scene.create_urdf_loader` - create URDF loader
+- `gap_rl/agents/base_agent.py:93` `URDFLoader.load` - load articulation from URDF
+- `gap_rl/agents/base_agent.py:98` `Articulation.get_links` - cache link ids
+- `gap_rl/agents/base_agent.py:99` `Articulation.get_active_joints` - cache gripper joints
+- `gap_rl/agents/base_agent.py:154` `Articulation.set_qpos` - reset joint positions
+- `gap_rl/agents/base_agent.py:155` `Articulation.set_qvel` - reset joint velocities
+- `gap_rl/agents/base_agent.py:156` `Articulation.set_qacc` - reset joint accelerations
+- `gap_rl/agents/base_agent.py:157` `Articulation.set_qf` - reset joint forces
+- `gap_rl/agents/base_agent.py:171` `Articulation.get_qpos` - proprioception
+- `gap_rl/agents/base_agent.py:171` `Articulation.get_qvel` - proprioception
+- `gap_rl/agents/base_agent.py:182` `Articulation.get_links` - root link pose
+- `gap_rl/agents/base_agent.py:186` `Articulation.get_qpos` - state serialization
+- `gap_rl/agents/base_agent.py:187` `Articulation.get_qvel` - state serialization
+- `gap_rl/agents/base_agent.py:188` `Articulation.get_qacc` - state serialization
+- `gap_rl/agents/base_agent.py:197` `Articulation.set_root_pose` - restore state
+- `gap_rl/agents/base_agent.py:198` `Articulation.set_root_velocity` - restore state
+- `gap_rl/agents/base_agent.py:199` `Articulation.set_root_angular_velocity` - restore state
+- `gap_rl/agents/base_agent.py:200` `Articulation.set_qpos` - restore state
+- `gap_rl/agents/base_agent.py:201` `Articulation.set_qvel` - restore state
+- `gap_rl/agents/base_agent.py:202` `Articulation.set_qacc` - restore state
+- `gap_rl/agents/utils.py:9` `Articulation.get_joints` - lookup joint indices
+- `gap_rl/agents/utils.py:18` `Articulation.get_active_joints` - lookup active joint indices
+- `gap_rl/agents/utils.py:23` `Articulation.get_joints` - retrieve joints by name
+- `gap_rl/agents/utils.py:29` `Articulation.get_active_joints` - retrieve active joints by name
+- `gap_rl/agents/controllers/pd_ee_pose.py:23` `Articulation.create_pinocchio_model` - IK model
+- `gap_rl/agents/controllers/pd_ee_pose.py:24` `Articulation.dof` - qmask length
+- `gap_rl/agents/controllers/pd_ee_pose.py:29` `Articulation.get_links` - find EE link
+- `gap_rl/agents/controllers/pd_ee_pose.py:34` `Articulation.get_links` - EE index
+- `gap_rl/agents/controllers/pd_ee_pose.py:63` `Articulation.get_qpos` - IK initial positions
+- `gap_rl/agents/controllers/pd_ee_pose.py:336` `Articulation` - controller ctor parameter
+- `gap_rl/agents/controllers/pd_ee_pose.py:455` `Articulation` - controller ctor parameter
+- `gap_rl/agents/base_controller.py:25` `Articulation` - controller ctor parameter
+- `gap_rl/agents/base_controller.py:35` `Articulation.get_builder` - infer sim timestep
+- `gap_rl/agents/base_controller.py:71` `Articulation.get_qpos` - joint state
+- `gap_rl/agents/base_controller.py:77` `Articulation.get_qvel` - joint state
+- `gap_rl/agents/base_controller.py:177` `Articulation.get_active_joints` - actuation check
+- `gap_rl/agents/base_controller.py:201` `Articulation.compute_passive_force` - compute passive force
+- `gap_rl/agents/base_controller.py:208` `Articulation.set_qf` - apply forces
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:107` `Scene.create_urdf_loader` - create URDF loader
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:114` `URDFLoader.load_file_as_articulation_builder` - load URDF builder
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:117` `ArticulationBuilder.get_link_builders` - configure collision groups
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:119` `ArticulationBuilder.build` - build articulation
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:121` `Articulation.set_name` - set articulation name
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:123` `Articulation.get_links` - cache link ids
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:125` `Articulation.get_active_joints` - cache active joints
+
+## Camera
+
+- `gap_rl/sensors/camera.py:143` `Scene.add_camera` - add free camera
+- `gap_rl/sensors/camera.py:151` `Camera.set_local_pose` - set camera pose
+- `gap_rl/sensors/camera.py:153` `Scene.add_mounted_camera` - add camera mounted to actor
+- `gap_rl/sensors/camera.py:175` `Camera.take_picture` - render camera images
+- `gap_rl/sensors/camera.py:180` `Camera.get_float_texture` - read float textures
+- `gap_rl/sensors/camera.py:182` `Camera.get_uint32_texture` - read uint32 textures
+- `gap_rl/sensors/camera.py:231` `Camera.get_float_texture` - read position texture
+- `gap_rl/sensors/camera.py:248` `Camera.get_extrinsic_matrix` - read extrinsic
+- `gap_rl/sensors/camera.py:249` `Camera.get_model_matrix` - read model matrix
+- `gap_rl/sensors/camera.py:250` `Camera.get_intrinsic_matrix` - read intrinsics
+- `gap_rl/sensors/depth_camera.py:67` `StereoDepthSensorConfig` - create stereo config
+- `gap_rl/sensors/depth_camera.py:75` `StereoDepthSensor` - create stereo sensor
+- `gap_rl/sensors/depth_camera.py:78` `StereoDepthSensor.set_pose` - set pose
+- `gap_rl/sensors/depth_camera.py:80` `StereoDepthSensor` - create mounted stereo sensor
+- `gap_rl/sensors/depth_camera.py:105` `_cam_rgb.get_float_texture` - read RGB camera texture
+- `gap_rl/sensors/depth_camera.py:107` `StereoDepthSensor.compute_depth` - compute depth
+- `gap_rl/sensors/depth_camera.py:108` `StereoDepthSensor.get_depth` - fetch depth
+- `gap_rl/sensors/depth_camera.py:111` `_cam_rgb.get_float_texture` - read position texture
+- `gap_rl/sensors/depth_camera.py:116` `_cam_rgb.get_uint32_texture` - read segmentation
+- `gap_rl/sensors/depth_camera.py:125` `_cam_rgb.get_extrinsic_matrix` - read extrinsic
+- `gap_rl/sensors/depth_camera.py:126` `_cam_rgb.get_model_matrix` - read model matrix
+- `gap_rl/sensors/depth_camera.py:127` `_cam_rgb.get_intrinsic_matrix` - read intrinsics
+- `gap_rl/envs/pick_single.py:481` `StereoDepthSensor` - check camera type
+- `gap_rl/envs/pick_single.py:484` `StereoDepthSensor._cam_rgb.get_extrinsic_matrix` - extrinsic for RGB
+- `gap_rl/envs/pick_single.py:488` `Camera.get_extrinsic_matrix` - extrinsic for standard camera
+- `gap_rl/envs/pick_single.py:491` `StereoDepthSensor` - check camera type
+- `gap_rl/envs/pick_single.py:494` `StereoDepthSensor._cam_rgb.get_intrinsic_matrix` - intrinsic for RGB
+- `gap_rl/envs/pick_single.py:498` `Camera.get_intrinsic_matrix` - intrinsic for standard camera
+- `gap_rl/envs/pick_single.py:514` `Camera.get_model_matrix` - camera model matrix
+- `gap_rl/envs/pick_single.py:691` `Camera.get_model_matrix` - render camera model matrix
+- `gap_rl/envs/pick_single.py:723` `Camera.get_model_matrix` - render camera model matrix
+- `gap_rl/envs/pick_single.py:767` `Camera.get_model_matrix` - camera model matrix for point clouds
+- `gap_rl/envs/pick_single.py:816` `Pose.inv().to_transformation_matrix` - camera-to-EE transform
+- `gap_rl/envs/pick_single.py:1690` `StereoDepthSensor.take_picture` - take stereo picture
+- `gap_rl/envs/pick_single.py:1691` `StereoDepthSensor.compute_depth` - compute depth
+- `gap_rl/envs/pick_single.py:1692` `StereoDepthSensor._cam_rgb.get_model_matrix` - stereo camera model
+- `gap_rl/envs/pick_single.py:1693` `StereoDepthSensor.get_pointcloud` - stereo pointcloud
+- `gap_rl/envs/pick_single.py:1696` `Camera.get_model_matrix` - camera model matrix
+
+## Sensor
+
+- `gap_rl/sensors/depth_camera.py:8` `sapien.sensor.StereoDepthSensor` - stereo depth sensor
+- `gap_rl/sensors/depth_camera.py:8` `sapien.sensor.StereoDepthSensorConfig` - stereo config
+- `gap_rl/envs/pick_single.py:53` `sapien.sensor.stereodepth.StereoDepthSensor` - stereo sensor type check
+
+## Pose
+
+- `gap_rl/utils/geometry.py:145` `sapien.Pose` - compute angular distance via pose multiplication
+- `gap_rl/utils/geometry.py:262` `sapien.Pose` - convert pose to pos/rotvec
+- `gap_rl/utils/sapien_utils.py:7` `sapien.Pose` - pose utilities
+- `gap_rl/utils/sapien_utils.py:21` `Pose` - vectorize pose
+- `gap_rl/utils/sapien_utils.py:303` `sapien.Pose` - look_at returns pose
+- `gap_rl/utils/sapien_utils.py:322` `sapien.Pose` - create pose from rotation matrix
+- `gap_rl/envs/base_env.py:434` `sapien.Pose` - background pose
+- `gap_rl/envs/base_env.py:434` `Pose([0,0,1.7], ...)` - fixed pose creation
+- `gap_rl/envs/pick_single.py:52` `Pose` import - pose construction
+- `gap_rl/envs/pick_single.py:138` `Pose()` - init contact pose
+- `gap_rl/envs/pick_single.py:187` `sapien.Pose` - box builder pose parameter
+- `gap_rl/envs/pick_single.py:196` `Pose()` - box visual pose
+- `gap_rl/envs/pick_single.py:216` `Pose(...)` - drive base pose
+- `gap_rl/envs/pick_single.py:228` `Pose(...)` - table pose
+- `gap_rl/envs/pick_single.py:241` `Pose(...)` - drive pose relative
+- `gap_rl/envs/pick_single.py:242` `Scene.create_drive` with `Pose` - drive configuration
+- `gap_rl/envs/pick_single.py:272` `Articulation.set_pose(Pose())` - set robot pose
+- `gap_rl/envs/pick_single.py:279` `Articulation.set_pose(Pose())` - set robot pose
+- `gap_rl/envs/pick_single.py:286` `Articulation.set_pose(Pose())` - set robot pose
+- `gap_rl/envs/pick_single.py:440` `Pose(p=..., q=...)` - set drive base pose
+- `gap_rl/envs/pick_single.py:442` `Pose(obj_p, q)` - set object pose
+- `gap_rl/envs/pick_single.py:465` `Articulation.set_pose(Pose())` - set robot pose
+- `gap_rl/envs/pick_single.py:476` `Pose.transform` - transform COM pose
+- `gap_rl/envs/pick_single.py:754` `Pose.to_transformation_matrix` - obj pose matrix
+- `gap_rl/envs/pick_single.py:755` `Pose.inv` - inverse pose
+- `gap_rl/envs/pick_single.py:813` `Pose.inv` - transform for EE
+- `gap_rl/envs/pick_single.py:833` `Pose.inv` - transform world to obj
+- `gap_rl/envs/pick_single.py:1032` `sapien.Pose` - set drive base pose
+- `gap_rl/envs/pick_single.py:1494` `Pose` - vectorize base pose
+- `gap_rl/envs/pick_single.py:1480` `Pose` - look_at result used for camera config
+- `gap_rl/envs/pick_single.py:1510` `Pose` - function signature for build_actor_ycb
+- `gap_rl/envs/pick_single.py:1683` `Pose` - set object pose (v1)
+- `gap_rl/envs/pick_single.py:1839` `Scene.create_drive` with `Pose()` - drive for conveyor
+- `gap_rl/envs/pick_single.py:1959` `Scene.create_drive` with `Pose()` - drive for conveyor
+- `gap_rl/envs/pick_single.py:2135` `Scene.create_drive` with `Pose()` - drive for conveyor
+- `gap_rl/agents/controllers/pd_ee_pose.py:75` `sapien.Pose` - delta pose from action
+- `gap_rl/agents/controllers/pd_ee_pose.py:85` `sapien.Pose` - target pose from action
+- `gap_rl/agents/controllers/pd_ee_pose.py:118` `sapien.Pose` - set target pose from state
+- `gap_rl/agents/controllers/pd_ee_pose.py:211` `sapien.Pose` - delta pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:227` `sapien.Pose` - target pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:288` `sapien.Pose` - delta pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:305` `sapien.Pose` - target pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:408` `sapien.Pose` - delta pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:424` `sapien.Pose` - target pose from rotvec
+- `gap_rl/agents/controllers/pd_ee_pose.py:521` `sapien.Pose` - delta pose from euler
+- `gap_rl/agents/controllers/pd_ee_pose.py:537` `sapien.Pose` - target pose from euler
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:92` `Pose.from_transformation_matrix` - build grasp pose
+- `gap_rl/sim2real/sim2real_traj_following.py:214` `sapien.Pose` - realsense to transformation
+- `gap_rl/sim2real/sim2real_traj_following.py:725` `sapien.Pose` - compute target pose
+- `gap_rl/sim2real/sim2real_traj_following.py:743` `Pose` - robot state to pose
+- `gap_rl/sim2real/sim2real_traj_following.py:818` `Pose` - compute grasp pose
+- `gap_rl/sim2real/sim2real_traj_following.py:833` `Pose.from_transformation_matrix` - compose base grasp
+- `gap_rl/sim2real/sim2real_traj_following.py:935` `Pose` - create pose from state
+
+## Physics
+
+- `gap_rl/envs/base_env.py:566` `sapien.SceneConfig` - physics solver config
+- `gap_rl/envs/base_env.py:571` `SceneConfig.enable_pcm` - enable/disable PCM
+- `gap_rl/envs/base_env.py:572` `SceneConfig.solver_iterations` - solver iterations
+- `gap_rl/envs/base_env.py:574` `SceneConfig.solver_velocity_iterations` - solver velocity iterations
+- `gap_rl/envs/base_env.py:575` `SceneConfig.disable_collision_visual` - disable collision visual
+- `gap_rl/envs/base_env.py:587` `SceneConfig.gravity` - gravity capture
+- `gap_rl/envs/pick_single.py:212` `Scene.create_physical_material` - physics material creation
+- `gap_rl/envs/pick_single.py:209` `Actor.set_damping` - physical damping
+- `gap_rl/envs/pick_single.py:355` `Scene.step` - physics step
+- `gap_rl/utils/sapien_utils.py:130` `Actor.get_pose` - physics state read
+- `gap_rl/utils/sapien_utils.py:141` `Actor.set_pose` - physics state set
+- `gap_rl/utils/sapien_utils.py:149` `Articulation.get_links` - access root link state
+- `gap_rl/utils/sapien_utils.py:160` `Articulation.set_root_pose` - set root pose
+- `gap_rl/utils/sapien_utils.py:161` `Articulation.set_root_velocity` - set root velocity
+- `gap_rl/utils/sapien_utils.py:162` `Articulation.set_root_angular_velocity` - set root angular velocity
+- `gap_rl/utils/sapien_utils.py:164` `Articulation.set_qpos` - set qpos
+- `gap_rl/utils/sapien_utils.py:165` `Articulation.set_qvel` - set qvel
+- `gap_rl/utils/sapien_utils.py:183` `sapien.Contact` - contact info
+- `gap_rl/utils/sapien_utils.py:198` `ContactPoint.impulse` - contact impulse
+
+## Viewer
+
+- `gap_rl/envs/base_env.py:36` `sapien.utils.Viewer` - viewer class
+- `gap_rl/envs/base_env.py:658` `Viewer.set_scene` - attach scene
+- `gap_rl/envs/base_env.py:659` `Viewer.toggle_axes` - toggle axes
+- `gap_rl/envs/base_env.py:660` `Viewer.toggle_camera_lines` - toggle camera lines
+- `gap_rl/envs/base_env.py:666` `Viewer` - create viewer window
+- `gap_rl/envs/base_env.py:668` `Viewer.render` - render frame
+- `gap_rl/envs/pick_single.py:1489` `Viewer.set_camera_xyz` - set viewer camera position
+- `gap_rl/envs/pick_single.py:1490` `Viewer.set_camera_rpy` - set viewer camera orientation
+
+## Asset Loading
+
+- `gap_rl/agents/base_agent.py:85` `Scene.create_urdf_loader` - create URDF loader
+- `gap_rl/agents/base_agent.py:93` `URDFLoader.load` - load URDF articulation
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:107` `Scene.create_urdf_loader` - create URDF loader
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:114` `URDFLoader.load_file_as_articulation_builder` - load URDF builder
+- `gap_rl/agents/robots/ur5e_robotiq85_old.py:117` `ArticulationBuilder.get_link_builders` - configure collisions
+- `gap_rl/envs/pick_single.py:1517` `Scene.create_actor_builder` - build YCB actor
+- `gap_rl/envs/pick_single.py:1521` `ActorBuilder.add_multiple_collisions_from_file` - YCB collision
+- `gap_rl/envs/pick_single.py:1529` `ActorBuilder.add_visual_from_file` - YCB visual
+- `gap_rl/envs/pick_single.py:1778` `Scene.create_actor_builder` - build ACRONYM actor
+- `gap_rl/envs/pick_single.py:1786` `ActorBuilder.add_multiple_collisions_from_file` - ACRONYM collision
+- `gap_rl/envs/pick_single.py:1793` `ActorBuilder.add_visual_from_file` - ACRONYM visual
+- `gap_rl/envs/pick_single.py:1903` `Scene.create_actor_builder` - build Graspnet actor
+- `gap_rl/envs/pick_single.py:1909` `ActorBuilder.add_multiple_collisions_from_file` - Graspnet collision
+- `gap_rl/envs/pick_single.py:1917` `ActorBuilder.add_visual_from_file` - Graspnet visual
+- `gap_rl/envs/pick_single.py:1979` `Scene.create_actor_builder` - build EGAD actor
+- `gap_rl/envs/pick_single.py:1985` `ActorBuilder.add_multiple_collisions_from_file` - EGAD collision
+- `gap_rl/envs/pick_single.py:1993` `ActorBuilder.add_visual_from_file` - EGAD visual
+
+## Utilities
+
+- `gap_rl/vector/vec_env.py:171` `sapien.RenderServer` - create RenderServer for multi-process rendering
+- `gap_rl/vector/vec_env.py:172` `RenderServer.start` - start render server
+- `gap_rl/vector/vec_env.py:214` `RenderServer.auto_allocate_torch_tensors` - allocate renderer tensors
+- `gap_rl/utils/trimesh_utils.py:13` `sapien.BoxGeometry` - identify box collision
+- `gap_rl/utils/trimesh_utils.py:15` `sapien.CapsuleGeometry` - identify capsule collision
+- `gap_rl/utils/trimesh_utils.py:19` `sapien.SphereGeometry` - identify sphere collision
+- `gap_rl/utils/trimesh_utils.py:21` `sapien.PlaneGeometry` - identify plane collision
+- `gap_rl/utils/trimesh_utils.py:24` `sapien.ConvexMeshGeometry` - identify convex mesh collision
+- `gap_rl/utils/trimesh_utils.py:24` `sapien.NonconvexMeshGeometry` - identify nonconvex mesh collision
+- `gap_rl/utils/trimesh_utils.py:37` `sapien.RenderBody` - render body meshes
+- `gap_rl/utils/geometry.py:9` `sapien.Actor` - type annotations
+- `gap_rl/utils/geometry.py:9` `sapien.Articulation` - type annotations
+- `gap_rl/utils/geometry.py:9` `sapien.Link` - type annotations
+- `gap_rl/utils/geometry.py:9` `sapien.Pose` - type annotations
+- `gap_rl/utils/sapien_utils.py:55` `sapien.Entity` - entity typing in get_entity_by_name
+- `gap_rl/utils/sapien_utils.py:183` `sapien.Contact` - contact typing
+- `gap_rl/sensors/camera.py:123` `sapien.Scene` - type annotations
+- `gap_rl/sensors/camera.py:125` `sapien.Articulation` - type annotations
+- `gap_rl/sensors/depth_camera.py:47` `sapien.Scene` - type annotations
+- `gap_rl/sensors/depth_camera.py:49` `sapien.Articulation` - type annotations
+- `gap_rl/agents/base_agent.py:39` `sapien.Scene` - type annotations
+- `gap_rl/agents/base_agent.py:46` `sapien.Articulation` - type annotations
+- `gap_rl/agents/base_controller.py:18` `sapien.Joint` - type annotations
+- `gap_rl/envs/pick_single.py:81` `sapien.Actor` - type annotations
+- `gap_rl/sim2real/sim2real_traj_following.py:25` `sapien.core` - module import for Pose
+- `gap_rl/examples/gen_LoG_grasps.py:14` `sapien.core` - module import for Pose

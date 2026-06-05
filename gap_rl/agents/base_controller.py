@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl.utils.common import clip_and_scale_action, normalize_action_space
 from gym import spaces
 
@@ -15,14 +15,14 @@ class BaseController:
     The controller is an interface for the robot to interact with the environment.
     """
 
-    joints: List[sapien.Joint]  # active joints controlled
+    joints: List["sapien.Joint"]  # active joints controlled
     joint_indices: List[int]  # indices of active joints controlled
     action_space: spaces.Space
 
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: sapien.Articulation,
+        articulation: "sapien.Articulation",
         control_freq: int,
         sim_freq: int = None,
     ):
@@ -32,6 +32,10 @@ class BaseController:
 
         # For action interpolation
         if sim_freq is None:  # infer from scene
+            # SAPIEN 2
+            # sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
+            # TODO(SAPIEN3):
+            # Verify articulation builder/scene timestep access in SAPIEN 3
             sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
             sim_freq = round(1.0 / sim_timestep)
         # Number of simulation steps per control step
@@ -137,7 +141,7 @@ class DictController(BaseController):
     def __init__(
         self,
         configs: Dict[str, ControllerConfig],
-        articulation: sapien.Articulation,
+        articulation: "sapien.Articulation",
         control_freq: int,
         sim_freq: int = None,
         balance_passive_force=True,

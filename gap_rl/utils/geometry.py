@@ -2,11 +2,15 @@ from typing import Dict, List
 
 import numpy as np
 from copy import deepcopy
-import sapien.core as sapien
+import sapien
 import torch
 
 from gap_rl.utils.bounding_cylinder import aabc
-from sapien.core import Actor, Articulation, Link, Pose
+# SAPIEN 2
+# from sapien.core import Actor, Articulation, Link, Pose
+# TODO(SAPIEN3):
+# Verify Actor/Articulation/Link/Pose import path in SAPIEN 3
+from sapien import Actor, Articulation, Link, Pose
 from scipy.spatial.transform import Rotation
 
 

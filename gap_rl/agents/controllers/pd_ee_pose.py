@@ -3,7 +3,7 @@ from typing import Sequence, Union
 
 import numpy as np
 from collections import deque
-import sapien.core as sapien
+import sapien
 from gap_rl.utils.common import clip_and_scale_action
 from gap_rl.utils.sapien_utils import get_entity_by_name, vectorize_pose
 from gym import spaces
@@ -20,6 +20,10 @@ class PDEEPosController(PDJointPosController):
         super()._initialize_joints()
 
         # Pinocchio model to compute IK
+        # SAPIEN 2
+        # self.pmodel = self.articulation.create_pinocchio_model()
+        # TODO(SAPIEN3):
+        # Verify Pinocchio model API in SAPIEN 3
         self.pmodel = self.articulation.create_pinocchio_model()
         self.qmask = np.zeros(self.articulation.dof, dtype=bool)
         self.qmask[self.joint_indices] = 1
@@ -141,7 +145,7 @@ class PDEEPoseController(PDEEPosController):
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: sapien.Articulation,
+        articulation: "sapien.Articulation",
         control_freq: int,
         sim_freq: int = None,
     ):
@@ -333,7 +337,7 @@ class PDEEPoseControllerMultiAct(PDEEPoseController):
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: sapien.Articulation,
+        articulation: "sapien.Articulation",
         control_freq: int,
         sim_freq: int = None,
     ):
@@ -452,7 +456,7 @@ class PDEEPoseEulerControllerMultiAct(PDEEPoseEulerController):
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: sapien.Articulation,
+        articulation: "sapien.Articulation",
         control_freq: int,
         sim_freq: int = None,
     ):

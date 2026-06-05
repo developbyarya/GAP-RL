@@ -1,11 +1,11 @@
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 import trimesh
 
 
-def get_actor_meshes(actor: sapien.ActorBase):
+def get_actor_meshes(actor: "sapien.ActorBase"):
     """Get actor (collision) meshes in the actor frame."""
     meshes = []
     for col_shape in actor.get_collision_shapes():
@@ -34,7 +34,7 @@ def get_actor_meshes(actor: sapien.ActorBase):
     return meshes
 
 
-def get_visual_body_meshes(visual_body: sapien.RenderBody):
+def get_visual_body_meshes(visual_body: "sapien.RenderBody"):
     meshes = []
     for render_shape in visual_body.get_render_shapes():
         try:
@@ -49,7 +49,7 @@ def get_visual_body_meshes(visual_body: sapien.RenderBody):
     return meshes
 
 
-def get_actor_visual_meshes(actor: sapien.ActorBase):
+def get_actor_visual_meshes(actor: "sapien.ActorBase"):
     """Get actor (visual) meshes in the actor frame."""
     meshes = []
     for vb in actor.get_visual_bodies():
@@ -70,7 +70,7 @@ def merge_meshes(meshes: List[trimesh.Trimesh]):
         return None
 
 
-def get_actor_mesh(actor: sapien.ActorBase, to_world_frame=True):
+def get_actor_mesh(actor: "sapien.ActorBase", to_world_frame=True):
     mesh = merge_meshes(get_actor_meshes(actor))
     if mesh is None:
         return None
@@ -80,7 +80,7 @@ def get_actor_mesh(actor: sapien.ActorBase, to_world_frame=True):
     return mesh
 
 
-def get_actor_visual_mesh(actor: sapien.ActorBase, to_world_frame=True):
+def get_actor_visual_mesh(actor: "sapien.ActorBase", to_world_frame=True):
     mesh = merge_meshes(get_actor_visual_meshes(actor))
     if mesh is None:
         return None
@@ -91,7 +91,7 @@ def get_actor_visual_mesh(actor: sapien.ActorBase, to_world_frame=True):
 
 
 def get_articulation_meshes(
-    articulation: sapien.ArticulationBase, include_link_names=(), exclude_link_names=()
+    articulation: "sapien.ArticulationBase", include_link_names=(), exclude_link_names=()
 ):
     """Get link meshes in the world frame."""
     meshes = []
@@ -106,7 +106,7 @@ def get_articulation_meshes(
 
 
 def get_articulation_visual_meshes(
-    articulation: sapien.ArticulationBase, include_link_names=(), exclude_link_names=()
+    articulation: "sapien.ArticulationBase", include_link_names=(), exclude_link_names=()
 ):
     """Get link meshes in the world frame."""
     meshes = []
@@ -118,4 +118,3 @@ def get_articulation_visual_meshes(
             if mesh is not None:
                 meshes.append(mesh)
     return meshes
-

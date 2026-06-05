@@ -2,9 +2,13 @@ from collections import OrderedDict
 from typing import Dict, List, Sequence
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl.utils.sapien_utils import get_entity_by_name
 from gym import spaces
+# SAPIEN 2
+# from sapien.sensor import StereoDepthSensor, StereoDepthSensorConfig
+# TODO(SAPIEN3):
+# Verify stereo depth sensor module path in SAPIEN 3
 from sapien.sensor import StereoDepthSensor, StereoDepthSensorConfig
 
 from .camera import Camera, CameraConfig
@@ -44,9 +48,9 @@ class StereoDepthCamera(Camera):
     def __init__(
         self,
         camera_cfg: StereoDepthCameraConfig,
-        scene: sapien.Scene,
+        scene: "sapien.Scene",
         renderer_type: str,
-        articulation: sapien.Articulation = None,
+        articulation: "sapien.Articulation" = None,
     ):
         self.camera_cfg = camera_cfg
         assert renderer_type == "sapien", renderer_type
@@ -64,6 +68,10 @@ class StereoDepthCamera(Camera):
                 raise RuntimeError(f"Mount actor ({actor_uid}) is not found")
 
         # Add camera
+        # SAPIEN 2
+        # sensor_config = StereoDepthSensorConfig()
+        # TODO(SAPIEN3):
+        # Verify StereoDepthSensorConfig in SAPIEN 3
         sensor_config = StereoDepthSensorConfig()
         sensor_config.rgb_resolution = camera_cfg.rgb_resolution
         sensor_config.rgb_intrinsic = camera_cfg.rgb_intrinsic
@@ -72,11 +80,19 @@ class StereoDepthCamera(Camera):
         sensor_config.min_depth = camera_cfg.min_depth
         # sensor_config.max_disp = 256
         if self.actor is None:
+            # SAPIEN 2
+            # self.camera = StereoDepthSensor(
+            # TODO(SAPIEN3):
+            # Verify StereoDepthSensor creation API in SAPIEN 3
             self.camera = StereoDepthSensor(
                 camera_cfg.uid, scene, sensor_config, mount=self.actor
             )
             self.camera.set_pose(camera_cfg.pose)
         else:
+            # SAPIEN 2
+            # self.camera = StereoDepthSensor(
+            # TODO(SAPIEN3):
+            # Verify StereoDepthSensor creation API in SAPIEN 3
             self.camera = StereoDepthSensor(
                 camera_cfg.uid,
                 scene,

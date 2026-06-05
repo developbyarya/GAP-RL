@@ -3,7 +3,7 @@ from collections import OrderedDict
 from typing import Dict, Optional, Sequence, Union, Tuple
 import gym
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl import ASSET_DIR, logger
 from gap_rl.agents.base_agent import AgentConfig, BaseAgent
 from gap_rl.sensors.camera import (
@@ -33,6 +33,10 @@ from gap_rl.utils.trimesh_utils import (
 )
 from gap_rl.utils.geometry import transform_points
 from gap_rl.utils.visualization.misc import observations_to_images, tile_images
+# SAPIEN 2
+# from sapien.utils import Viewer
+# TODO(SAPIEN3):
+# Verify Viewer import path in SAPIEN 3
 from sapien.utils import Viewer
 
 
@@ -95,6 +99,10 @@ class BaseEnv(gym.Env):
         bg_name: str = None,
     ):  # sourcery skip: low-code-quality
         # Create SAPIEN engine
+        # SAPIEN 2
+        # self._engine = sapien.Engine()
+        # TODO(SAPIEN3):
+        # Verify Engine location in SAPIEN 3
         self._engine = sapien.Engine()
         self._engine.set_log_level(os.getenv("MS2_SIM_LOG_LEVEL", "error"))
 
@@ -103,7 +111,11 @@ class BaseEnv(gym.Env):
         if renderer_kwargs is None:
             renderer_kwargs = {}
         if self._renderer_type == "sapien":
-            self._renderer = sapien.SapienRenderer(**renderer_kwargs)
+            # SAPIEN 2
+            # self._renderer = sapien.SapienRenderer(**renderer_kwargs)
+            # TODO(SAPIEN3):
+            # Verify renderer class location in SAPIEN 3
+            self._renderer = sapien.render.SapienRenderer(**renderer_kwargs)
             if shader_dir == "ibl":
                 _render_config = dict(camera_shader_dir="ibl", viewer_shader_dir="ibl")
             elif shader_dir == "rt":
@@ -121,14 +133,33 @@ class BaseEnv(gym.Env):
             if render_config is None:
                 render_config = {}
             _render_config.update(render_config)
-            for k, v in _render_config.items():
-                setattr(sapien.render_config, k, v)
+            # SAPIEN 2
+            # for k, v in _render_config.items():
+            #     setattr(sapien.render_config, k, v)
+            # TODO(SAPIEN3):
+            # Verify render config accessors in SAPIEN 3
+            render_config_obj = getattr(sapien.render, "render_config", None)
+            if render_config_obj is None:
+                # TODO(SAPIEN3):
+                # Verify equivalent API in SAPIEN 3
+                pass
+            else:
+                for k, v in _render_config.items():
+                    setattr(render_config_obj, k, v)
             self._renderer.set_log_level(os.getenv("MS2_RENDERER_LOG_LEVEL", "warn"))
         elif self._renderer_type == "client":
-            self._renderer = sapien.RenderClient(**renderer_kwargs)
+            # SAPIEN 2
+            # self._renderer = sapien.RenderClient(**renderer_kwargs)
+            # TODO(SAPIEN3):
+            # Verify RenderClient location in SAPIEN 3
+            self._renderer = sapien.render.RenderClient(**renderer_kwargs)
         else:
             raise NotImplementedError(self._renderer_type)
 
+        # SAPIEN 2
+        # self._engine.set_renderer(self._renderer)
+        # TODO(SAPIEN3):
+        # Verify renderer attachment API in SAPIEN 3
         self._engine.set_renderer(self._renderer)
         self._viewer = None
 
@@ -301,6 +332,10 @@ class BaseEnv(gym.Env):
         if self._renderer_type == "client":
             # NOTE: not compatible with StereoDepthCamera
             cameras = [x.camera for x in self._cameras.values()]
+            # SAPIEN 2
+            # self._scene._update_render_and_take_pictures(cameras)
+            # TODO(SAPIEN3):
+            # Verify equivalent scene render sync API in SAPIEN 3
             self._scene._update_render_and_take_pictures(cameras)
         else:
             self.update_render()
@@ -563,6 +598,10 @@ class BaseEnv(gym.Env):
     # Simulation and other gym interfaces
     # -------------------------------------------------------------------------- #
     def _get_default_scene_config(self):
+        # SAPIEN 2
+        # scene_config = sapien.SceneConfig()
+        # TODO(SAPIEN3):
+        # Verify SceneConfig location in SAPIEN 3
         scene_config = sapien.SceneConfig()
         scene_config.default_dynamic_friction = 1.0
         scene_config.default_static_friction = 1.0
@@ -582,6 +621,10 @@ class BaseEnv(gym.Env):
         """
         if scene_config is None:
             scene_config = self._get_default_scene_config()
+        # SAPIEN 2
+        # self._scene = self._engine.create_scene(scene_config)
+        # TODO(SAPIEN3):
+        # Verify scene creation API in SAPIEN 3
         self._scene = self._engine.create_scene(scene_config)
         self._scene.set_timestep(1.0 / self._sim_freq)
         self._scene_gravity = scene_config.gravity

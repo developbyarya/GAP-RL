@@ -22,8 +22,12 @@ from tqdm import tqdm
 
 from stable_baselines3 import SAC
 
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+# SAPIEN 2
+# from sapien.core import Pose
+# TODO(SAPIEN3):
+# Verify Pose import path in SAPIEN 3
+from sapien import Pose
 
 from gap_rl import ALGORITHM_DIR
 from gap_rl.utils.common import inv_clip_and_scale_action, clip_and_scale_action

@@ -6,7 +6,7 @@ from typing import Dict, List, Type, Union
 import numpy as np
 import torch
 import open3d as o3d
-import sapien.core as sapien
+import sapien
 from gap_rl import ASSET_DIR, format_path
 from gap_rl.agents.base_agent import BaseAgent
 from gap_rl.agents.robots.ur5e_robotiq85_old import UR5e_Robotiq85_old
@@ -49,7 +49,15 @@ from gap_rl.utils.trimesh_utils import (
     get_articulation_meshes,
     merge_meshes,
 )
-from sapien.core import Pose
+# SAPIEN 2
+# from sapien.core import Pose
+# TODO(SAPIEN3):
+# Verify Pose import path in SAPIEN 3
+from sapien import Pose
+# SAPIEN 2
+# from sapien.sensor.stereodepth import StereoDepthSensor
+# TODO(SAPIEN3):
+# Verify stereo depth sensor import path in SAPIEN 3
 from sapien.sensor.stereodepth import StereoDepthSensor
 from scipy.spatial.transform import Rotation
 from transforms3d.euler import euler2quat, quat2euler
@@ -239,6 +247,12 @@ class PickSingleEnv(BaseEnv):
             [0, 0, self._get_init_z() + drive_base_pos[2]]
         )
         pose_d = self.drive_base.pose.inv() * Pose(p_obj)
+        # SAPIEN 2
+        # self.conveyor_drive = self._scene.create_drive(
+        #     self.drive_base, pose_d, self.obj, Pose()
+        # )
+        # TODO(SAPIEN3):
+        # Verify drive/constraint API in SAPIEN 3
         self.conveyor_drive = self._scene.create_drive(
             self.drive_base, pose_d, self.obj, Pose()
         )
@@ -503,6 +517,13 @@ class PickSingleEnv(BaseEnv):
     def _initialize_task(self, max_trials=100):
         # pass
         self.contact_flag = False
+        # SAPIEN 2
+        # self.conveyor_drive.set_x_properties(stiffness=1e6, damping=1e3)
+        # self.conveyor_drive.set_y_properties(stiffness=1e6, damping=1e3)
+        # self.conveyor_drive.set_z_properties(stiffness=1e8, damping=1e4)
+        # self.conveyor_drive.set_slerp_properties(stiffness=1e6, damping=1e3)
+        # TODO(SAPIEN3):
+        # Verify drive property APIs in SAPIEN 3
         self.conveyor_drive.set_x_properties(stiffness=1e6, damping=1e3)
         self.conveyor_drive.set_y_properties(stiffness=1e6, damping=1e3)
         self.conveyor_drive.set_z_properties(stiffness=1e8, damping=1e4)
@@ -1029,7 +1050,11 @@ class PickSingleEnv(BaseEnv):
             cur_pose = self.drive_poses[cur_sim_steps]
             cur_q = self.qs[cur_sim_steps] if self.vary_speed else self.init_q
             # cur_q = self.qs[cur_sim_steps] if self.vary_speed else self.init_q
-            self.drive_base.set_pose(sapien.Pose(p=cur_pose, q=cur_q))
+        # SAPIEN 2
+        # self.drive_base.set_pose(sapien.Pose(p=cur_pose, q=cur_q))
+        # TODO(SAPIEN3):
+        # Verify Pose import path in SAPIEN 3
+        self.drive_base.set_pose(Pose(p=cur_pose, q=cur_q))
 
             ## new drive
             self.drive_base.add_force_at_point(
@@ -1043,6 +1068,13 @@ class PickSingleEnv(BaseEnv):
                 self.contact_flag = True
                 self.contact_obj_pose = self.obj_pose
             if self.contact_flag:
+                # SAPIEN 2
+                # self.conveyor_drive.set_x_properties(stiffness=0, damping=0)
+                # self.conveyor_drive.set_y_properties(stiffness=0, damping=0)
+                # self.conveyor_drive.set_z_properties(stiffness=0, damping=0)
+                # self.conveyor_drive.set_slerp_properties(stiffness=0, damping=0)
+                # TODO(SAPIEN3):
+                # Verify drive property APIs in SAPIEN 3
                 self.conveyor_drive.set_x_properties(stiffness=0, damping=0)
                 self.conveyor_drive.set_y_properties(stiffness=0, damping=0)
                 self.conveyor_drive.set_z_properties(stiffness=0, damping=0)
@@ -1305,10 +1337,18 @@ class PickSingleEnv(BaseEnv):
         ]
         ws_linsets = end_points[line_order].reshape(-1, 3)
         colors = [1, 1, 1, 0.5] * ws_linsets.shape[0]
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # workspace_linesets = renderer_context.create_line_set(ws_linsets, colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(workspace_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         workspace_linesets = renderer_context.create_line_set(ws_linsets, colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(workspace_linesets)
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(
+            workspace_linesets
         )
         return lineset
 
@@ -1318,11 +1358,17 @@ class PickSingleEnv(BaseEnv):
         draw_poses = self.drive_poses[::50]
         draw_traj = np.tile(draw_poses, 2).reshape(-1, 3)[1:-1]
         colors = [1, 1, 0, 1] * draw_traj.shape[0]
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # traj_linesets = renderer_context.create_line_set(draw_traj, colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         traj_linesets = renderer_context.create_line_set(draw_traj, colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
-        )
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
         return lineset
 
     def _view_obj_bbdx(self):
@@ -1334,11 +1380,17 @@ class PickSingleEnv(BaseEnv):
                       [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]]
         obj_linsets = obj_vertices_world[line_order].reshape(-1, 3)
         obj_colors = [0.3, 0.3, 0.3, 1] * obj_linsets.shape[0]
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # traj_linesets = renderer_context.create_line_set(obj_linsets, obj_colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         traj_linesets = renderer_context.create_line_set(obj_linsets, obj_colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
-        )
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
         return lineset
 
     def _view_grasps(self):
@@ -1387,11 +1439,17 @@ class PickSingleEnv(BaseEnv):
         draw_grasp_traj = np.concatenate(draw_grasp_traj, axis=0)
         colors = np.concatenate(colors, axis=0)
 
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
-        )
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
         return lineset
 
     def _view_anno_grasps(self):
@@ -1428,11 +1486,17 @@ class PickSingleEnv(BaseEnv):
         draw_grasp_traj = np.concatenate(draw_grasp_traj, axis=0)
         colors = np.concatenate(colors, axis=0)
 
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
-        )
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
         return lineset
 
     def _view_pred_grasp(self):
@@ -1465,14 +1529,24 @@ class PickSingleEnv(BaseEnv):
         colors.append([0, 1, 0, 1] * num_lines)
         colors.append([0, 0, 1, 1] * num_lines)
 
+        # SAPIEN 2
+        # renderer_context = self._renderer._internal_context
+        # traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
+        # lineset: R.LineSetObject = (
+        #     self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
+        # )
+        # TODO(SAPIEN3):
+        # Verify line set rendering API in SAPIEN 3
         renderer_context = self._renderer._internal_context
         traj_linesets = renderer_context.create_line_set(draw_grasp_traj, colors)
-        lineset: R.LineSetObject = (
-            self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
-        )
+        lineset = self._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
         return lineset
 
     def _remove_lineset(self, lineset):
+        # SAPIEN 2
+        # self._scene.renderer_scene._internal_scene.remove_node(lineset)
+        # TODO(SAPIEN3):
+        # Verify line set removal API in SAPIEN 3
         self._scene.renderer_scene._internal_scene.remove_node(lineset)
 
     def _register_render_cameras(self):
@@ -1835,6 +1909,12 @@ class PickSingleACRONYMEnv(PickSingleEnv):
 
         drive_base_pose = self.drive_base.pose
         drive_base_pose.set_p(-drive_base_pose.p)
+        # SAPIEN 2
+        # self.conveyor_drive = self._scene.create_drive(
+        #     None, Pose(), self.drive_base, Pose()
+        # )
+        # TODO(SAPIEN3):
+        # Verify drive/constraint API in SAPIEN 3
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )
@@ -1955,6 +2035,12 @@ class PickSingleGraspnetEnv(PickSingleEnv):
 
         drive_base_pose = self.drive_base.pose
         drive_base_pose.set_p(-drive_base_pose.p)
+        # SAPIEN 2
+        # self.conveyor_drive = self._scene.create_drive(
+        #     None, Pose(), self.drive_base, Pose()
+        # )
+        # TODO(SAPIEN3):
+        # Verify drive/constraint API in SAPIEN 3
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )
@@ -2131,6 +2217,12 @@ class PickSingleEGADEnv(PickSingleEnv):
 
         drive_base_pose = self.drive_base.pose
         drive_base_pose.set_p(-drive_base_pose.p)
+        # SAPIEN 2
+        # self.conveyor_drive = self._scene.create_drive(
+        #     None, Pose(), self.drive_base, Pose()
+        # )
+        # TODO(SAPIEN3):
+        # Verify drive/constraint API in SAPIEN 3
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )

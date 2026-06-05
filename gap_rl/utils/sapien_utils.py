@@ -3,8 +3,12 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+# SAPIEN 2
+# from sapien.core import Pose
+# TODO(SAPIEN3):
+# Verify Pose import path in SAPIEN 3
+from sapien import Pose
 from transforms3d.quaternions import mat2quat
 
 
@@ -332,16 +336,20 @@ def hex2rgba(h, correction=True):
     return rgba
 
 
-def set_render_material(material: sapien.RenderMaterial, **kwargs):
+def set_render_material(material: "sapien.render.RenderMaterial", **kwargs):
     for k, v in kwargs.items():
         if k == "color":
+            # SAPIEN 2
+            # material.set_base_color(v)
+            # TODO(SAPIEN3):
+            # Verify render material API in SAPIEN 3
             material.set_base_color(v)
         else:
             setattr(material, k, v)
     return material
 
 
-def set_articulation_render_material(articulation: sapien.Articulation, **kwargs):
+def set_articulation_render_material(articulation: "sapien.Articulation", **kwargs):
     for link in articulation.get_links():
         for b in link.get_visual_bodies():
             for s in b.get_render_shapes():

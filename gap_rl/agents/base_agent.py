@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Union
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gap_rl import format_path
 from gap_rl.sensors.camera import CameraConfig
 from gap_rl.utils.sapien_utils import check_urdf_config, parse_urdf_config
@@ -43,12 +43,12 @@ class BaseAgent:
         config: agent configuration
     """
 
-    robot: sapien.Articulation
+    robot: "sapien.Articulation"
     controllers: Dict[str, BaseController]
 
     def __init__(
         self,
-        scene: sapien.Scene,
+        scene: "sapien.Scene",
         control_freq: int,
         control_mode: str = None,
         fix_root_link=True,
@@ -82,6 +82,10 @@ class BaseAgent:
         raise NotImplementedError
 
     def _load_articulation(self):
+        # SAPIEN 2
+        # loader = self.scene.create_urdf_loader()
+        # TODO(SAPIEN3):
+        # Verify URDF loader API in SAPIEN 3
         loader = self.scene.create_urdf_loader()
         loader.fix_root_link = self.fix_root_link
 
@@ -90,6 +94,10 @@ class BaseAgent:
         urdf_config = parse_urdf_config(self.urdf_config, self.scene)
         check_urdf_config(urdf_config)
 
+        # SAPIEN 2
+        # self.robot = loader.load(urdf_path, urdf_config)
+        # TODO(SAPIEN3):
+        # Verify URDF loader signature in SAPIEN 3
         self.robot = loader.load(urdf_path, urdf_config)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
         self.robot.set_name(Path(urdf_path).stem)
