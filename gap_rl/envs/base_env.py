@@ -456,7 +456,7 @@ class BaseEnv(gym.Env):
 
     def set_episode_rng(self, seed):
         """Set the random generator for current episode."""
-        self._episode_seed = self._main_rng.randint(2 ** 32) if seed is None else seed
+        self._episode_seed = self._main_rng.randint(2 ** 31) if seed is None else seed
         self._episode_rng = np.random.RandomState(self._episode_seed)
 
     def initialize_episode(self):
