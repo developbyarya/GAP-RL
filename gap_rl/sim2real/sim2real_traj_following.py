@@ -15,7 +15,7 @@ import open3d as o3d
 import rospy
 from tf.transformations import euler_from_quaternion
 
-import gym
+import gymnasium as gym
 import h5py
 from scipy.spatial.transform import Rotation, Slerp
 from tqdm import tqdm
@@ -23,10 +23,6 @@ from tqdm import tqdm
 from stable_baselines3 import SAC
 
 import sapien
-# SAPIEN 2
-# from sapien.core import Pose
-# TODO(SAPIEN3):
-# Verify Pose import path in SAPIEN 3
 from sapien import Pose
 
 from gap_rl import ALGORITHM_DIR

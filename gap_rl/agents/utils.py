@@ -3,7 +3,7 @@ from typing import Dict, Sequence
 
 import numpy as np
 import sapien
-from gym import spaces
+from gymnasium import spaces
 
 
 def get_joint_indices(articulation: "sapien.Articulation", joint_names: Sequence[str]):

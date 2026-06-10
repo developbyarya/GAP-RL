@@ -1,6 +1,6 @@
 import os
 
-import gym
+import gymnasium as gym
 import time
 import yaml
 import random
@@ -65,7 +65,7 @@ def main():
         gen_traj_mode=gen_traj_mode,
         grasp_select_mode=grasp_select_mode
     )
-    env.seed(seed)
+    env.unwrapped.seed(seed)
     print(env.action_space)
 
     keys = ["reset_time", "step_time"]
@@ -74,7 +74,7 @@ def main():
         start_time = time.time()
         cur_id = int(num % len(model_ids))
         print("cur model id: ", cur_id, model_ids[cur_id])
-        _ = env.reset(model_id=model_ids[cur_id])
+        env.reset(model_id=model_ids[cur_id])
         if render:
             viewer = env.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
             # print("Press [e] to start")
@@ -89,7 +89,7 @@ def main():
         epi_start_time = time.time()
         for step in range(MAX_STEPS):
             t = time.time()
-            obs, rew, done, info = env.step(np.zeros(env.agent.action_space.sample().shape))
+            obs, rew, terminated, truncated, info = env.step(np.zeros(env.agent.action_space.sample().shape))
             print("++ ", time.time() - t)
             if render:
                 # print("Press [c] to continue")

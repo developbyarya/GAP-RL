@@ -6,7 +6,7 @@ from collections import deque
 import sapien
 from gap_rl.utils.common import clip_and_scale_action
 from gap_rl.utils.sapien_utils import get_entity_by_name, vectorize_pose
-from gym import spaces
+from gymnasium import spaces
 from scipy.spatial.transform import Rotation, Slerp, RotationSpline
 
 from ..base_controller import BaseController, ControllerConfig
@@ -20,10 +20,6 @@ class PDEEPosController(PDJointPosController):
         super()._initialize_joints()
 
         # Pinocchio model to compute IK
-        # SAPIEN 2
-        # self.pmodel = self.articulation.create_pinocchio_model()
-        # TODO(SAPIEN3):
-        # Verify Pinocchio model API in SAPIEN 3
         self.pmodel = self.articulation.create_pinocchio_model()
         self.qmask = np.zeros(self.articulation.dof, dtype=bool)
         self.qmask[self.joint_indices] = 1

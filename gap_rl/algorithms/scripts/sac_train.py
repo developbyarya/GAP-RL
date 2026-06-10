@@ -230,7 +230,7 @@ if __name__ == "__main__":
                 save_on_reset=True,
                 clean_on_close=True,
             )
-            record_env.seed(eval_seed)
+            record_env.unwrapped.seed(eval_seed)
 
             is_success = []
             exp_steps = []
@@ -238,13 +238,13 @@ if __name__ == "__main__":
                 for num in tqdm(
                     range(cfg["test_num"]), desc=f"Processing {eval_step / 1000000}M", colour="green", leave=True
                 ):
-                    obs = record_env.reset(model_id=model_id)
+                    obs, _ = record_env.reset(model_id=model_id)
                     epi_seed = record_env.unwrapped._episode_seed
                     success_flag = False
                     total_steps = 0
                     for step in tqdm(range(cfg["max_steps"]), colour="red", leave=False):
                         action, _states = rl_model.predict(obs, deterministic=True)
-                        obs, rewards, done, info = record_env.step(action)
+                        obs, rewards, terminated, truncated, info = record_env.step(action)
                         if not success_flag and info["is_success"]:
                             success_flag = True
                             total_steps = step

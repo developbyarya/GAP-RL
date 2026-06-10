@@ -5,7 +5,7 @@ from typing import Dict, List
 import numpy as np
 import sapien
 from gap_rl.utils.common import clip_and_scale_action, normalize_action_space
-from gym import spaces
+from gymnasium import spaces
 
 from .utils import flatten_action_spaces, get_active_joint_indices, get_active_joints
 
@@ -32,10 +32,6 @@ class BaseController:
 
         # For action interpolation
         if sim_freq is None:  # infer from scene
-            # SAPIEN 2
-            # sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
-            # TODO(SAPIEN3):
-            # Verify articulation builder/scene timestep access in SAPIEN 3
             sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
             sim_freq = round(1.0 / sim_timestep)
         # Number of simulation steps per control step

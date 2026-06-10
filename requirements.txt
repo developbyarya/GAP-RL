@@ -2,8 +2,8 @@
 ## gym 0.21.0 need pip install setuptools==65.5.0 "wheel<0.40.0"
 numpy==1.23
 scipy
-gym==0.21.0
-sapien==2.2.2
+gymnasium
+sapien==3.0.0
 mplib
 
 # basic

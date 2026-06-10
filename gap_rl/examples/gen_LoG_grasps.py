@@ -2,7 +2,7 @@ import argparse
 import os
 from copy import deepcopy
 from collections import OrderedDict, defaultdict
-import gym
+import gymnasium as gym
 import mplib
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -12,10 +12,6 @@ from tqdm import tqdm
 import open3d as o3d
 import matplotlib.pyplot as plt
 import sapien
-# SAPIEN 2
-# from sapien.core import Pose
-# TODO(SAPIEN3):
-# Verify Pose import path in SAPIEN 3
 from sapien import Pose
 
 from gap_rl.envs.base_env import BaseEnv
@@ -59,7 +55,7 @@ def grasps_nms(grasp_file, model_ids, nms=False, vis=True, save=False):
     )
 
     for model_id in model_ids:
-        _ = env.reset(model_id=model_id)
+        env.reset(model_id=model_id)
         # action_sample = env.action_space.sample()
         # action = np.zeros(action_sample.shape)
         # # action = np.zeros(7)
@@ -195,7 +191,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=Fals
             os.makedirs(img_dir, exist_ok=True)
 
         print(f"============ {model_id} ============")
-        _ = env.reset(model_id=model_id)
+        env.reset(model_id=model_id)
         obj_center_pos = env.obj_init_pos
 
         if render:

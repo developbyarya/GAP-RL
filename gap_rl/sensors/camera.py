@@ -4,7 +4,7 @@ from typing import Dict, List, Sequence
 import numpy as np
 import sapien
 from gap_rl.utils.sapien_utils import get_entity_by_name
-from gym import spaces
+from gymnasium import spaces
 
 
 class CameraConfig:
@@ -54,10 +54,6 @@ class CameraConfig:
 
     @property
     def pose(self):
-        # SAPIEN 2
-        # return sapien.Pose(self.p, self.q)
-        # TODO(SAPIEN3):
-        # Verify Pose import path in SAPIEN 3
         return sapien.Pose(self.p, self.q)
 
     @pose.setter
@@ -144,10 +140,6 @@ class Camera:
 
         # Add camera
         if self.actor is None:
-            # SAPIEN 2
-            # self.camera = scene.add_camera(
-            # TODO(SAPIEN3):
-            # Verify camera creation API in SAPIEN 3
             self.camera = scene.add_camera(
                 camera_cfg.uid,
                 camera_cfg.width,
@@ -158,10 +150,6 @@ class Camera:
             )
             self.camera.set_local_pose(camera_cfg.pose)
         else:
-            # SAPIEN 2
-            # self.camera = scene.add_mounted_camera(
-            # TODO(SAPIEN3):
-            # Verify mounted camera API in SAPIEN 3
             self.camera = scene.add_mounted_camera(
                 camera_cfg.uid,
                 self.actor,

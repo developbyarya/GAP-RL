@@ -4,7 +4,7 @@ import time
 import glob
 import argparse
 from tqdm import tqdm
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 import pickle
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
                 # print("Observation: ", record_env.observation_space.keys())
                 # print("Action Space: ", record_env.action_space)
-                record_env.seed(cur_seed)
+                record_env.unwrapped.seed(cur_seed)
                 # print("+++++++++++++ init env main seed: ", record_env.unwrapped._main_seed)
 
                 success_rates = []
@@ -143,7 +143,7 @@ if __name__ == "__main__":
                     for num in tqdm(range(args.obj_test_num), desc=f'Processing 2M model', colour='red', leave=True):
                         t = time.time()
                         # print("+++++++++++++ env main seed: ", record_env.unwrapped._main_seed)
-                        obs = record_env.reset(model_id=model_id)
+                        obs, _ = record_env.reset(model_id=model_id)
                         epi_seed = record_env.unwrapped._episode_seed
                         # print("+++++++++++++ episode seed: ", epi_seed)
                         # print("*************  points add noise: ", record_env.unwrapped.points_add_noise)
@@ -193,9 +193,9 @@ if __name__ == "__main__":
 
                                 t = time.time()
                                 if not init_obj_exist:
-                                    obs, rewards, dones, info = record_env.step(np.zeros(7))
+                                    obs, rewards, terminated, truncated, info = record_env.step(np.zeros(7))
                                 else:
-                                    obs, rewards, dones, info = record_env.step(action)
+                                    obs, rewards, terminated, truncated, info = record_env.step(action)
                                 # print(f"----- step {step}: env step time: ", time.time() - t)
                                 t = time.time()
 

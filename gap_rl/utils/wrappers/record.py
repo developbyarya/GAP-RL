@@ -2,11 +2,11 @@ import copy
 import time
 from pathlib import Path
 
-import gym
+import gymnasium as gym
 import h5py
 import numpy as np
 from gap_rl import get_commit_info, logger
-from gym import spaces
+from gymnasium import spaces
 
 from ..common import extract_scalars_from_info, flatten_dict_keys
 from ..io_utils import dump_json
@@ -159,7 +159,7 @@ class RecordEpisode(gym.Wrapper):
         self._render_images = []
 
         reset_kwargs = copy.deepcopy(kwargs)
-        obs = super().reset(**kwargs)
+        obs, info = super().reset(**kwargs)
 
         if self.save_trajectory:
             state = self.env.get_state()
@@ -176,11 +176,12 @@ class RecordEpisode(gym.Wrapper):
         if self.save_video:
             self._render_images.append(self.env.render(self.render_mode))
 
-        return obs
+        return obs, info
 
     def step(self, action):
-        obs, rew, done, info = super().step(action)
+        obs, rew, terminated, truncated, info = super().step(action)
         self._elapsed_steps += 1
+        done = terminated or truncated
 
         if self.save_trajectory:
             state = self.env.get_state()
@@ -202,7 +203,7 @@ class RecordEpisode(gym.Wrapper):
 
             self._render_images.append(image)
 
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def flush_trajectory(self, verbose=False, ignore_empty_transition=False):
         if not self.save_trajectory or len(self._episode_data) == 0:

@@ -12,11 +12,11 @@ from functools import partial
 from multiprocessing.connection import Connection
 from typing import Callable, Dict, List, Optional, Sequence, Type, Union
 
-import gym
+import gymnasium as gym
 import numpy as np
 import sapien
-from gym import spaces
-from gym.vector.utils.shared_memory import *
+from gymnasium import spaces
+from gymnasium.vector.utils.shared_memory import *
 
 try:
     import torch
@@ -56,11 +56,11 @@ def _worker(
         while True:
             cmd, data = remote.recv()
             if cmd == "step":
-                obs, reward, done, info = env.step(data)
-                remote.send((obs, reward, done, info))
+                obs, reward, terminated, truncated, info = env.step(data)
+                remote.send((obs, reward, terminated, truncated, info))
             elif cmd == "reset":
-                obs = env.reset()
-                remote.send(obs)
+                obs, info = env.reset()
+                remote.send((obs, info))
             elif cmd == "close":
                 remote.close()
                 break
@@ -168,10 +168,6 @@ class VecEnv:
             server_address = find_available_port()
         self.server_address = server_address
         server_kwargs = {} if server_kwargs is None else server_kwargs
-        # SAPIEN 2
-        # self.server = sapien.RenderServer(**server_kwargs)
-        # TODO(SAPIEN3):
-        # Verify RenderServer location in SAPIEN 3
         self.server = sapien.render.RenderServer(**server_kwargs)
         self.server.start(self.server_address)
         logger.info(f"RenderServer is running at: {server_address}")
@@ -213,10 +209,6 @@ class VecEnv:
 
         # Allocate torch buffers
         # A list of [n_envs, n_cams, H, W, C] tensors
-        # SAPIEN 2
-        # self._obs_torch_buffer = self.server.auto_allocate_torch_tensors(self.texture_names)
-        # TODO(SAPIEN3):
-        # Verify RenderServer tensor allocation API in SAPIEN 3
         self._obs_torch_buffer: List[
             torch.Tensor
         ] = self.server.auto_allocate_torch_tensors(self.texture_names)
@@ -274,8 +266,10 @@ class VecEnv:
         remotes = self._get_target_remotes(indices)
         results = [remote.recv() for remote in remotes]
         self.waiting = False
+        obs_list = [r[0] for r in results]
+        info_list = [r[1] for r in results]
         vec_obs = self._get_torch_observations()
-        self._update_np_buffer(results, indices)
+        self._update_np_buffer(obs_list, indices)
         vec_obs.update(deepcopy(self._obs_np_buffer))
         return vec_obs
 
@@ -291,11 +285,12 @@ class VecEnv:
     def step_wait(self):
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
-        obs_list, rews, dones, infos = zip(*results)
+        obs_list, rews, terminateds, truncateds, infos = zip(*results)
+        dones = np.array([t or tr for t, tr in zip(terminateds, truncateds)])
         vec_obs = self._get_torch_observations()
         self._update_np_buffer(obs_list)
         vec_obs.update(deepcopy(self._obs_np_buffer))
-        return vec_obs, np.array(rews), np.array(dones), infos
+        return vec_obs, np.array(rews), dones, infos
 
     def step(self, actions):
         self.step_async(actions)

@@ -8,7 +8,7 @@ from tqdm import tqdm
 from copy import deepcopy
 from collections import OrderedDict
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 import open3d as o3d
@@ -189,7 +189,7 @@ if __name__ == "__main__":
                 for obs_key, box_space in record_env.observation_space.items():
                     print(f"{obs_key}: {box_space.shape} ")
                 # print("Action Space: ", record_env.action_space)
-                record_env.seed(rseed)
+                record_env.unwrapped.seed(rseed)
                 # print("+++++++++++++ init env main seed: ", record_env.unwrapped._main_seed)
 
                 success_rates = []
@@ -214,7 +214,7 @@ if __name__ == "__main__":
                         for num in tqdm(range(args.obj_test_num), desc=f'Processing 2M', colour='red', leave=True):
                             t = time.time()
                             # print("+++++++++++++ env main seed: ", record_env.unwrapped._main_seed)
-                            _ = record_env.reset(model_id=model_id)
+                            record_env.reset(model_id=model_id)
                             epi_seed = record_env.unwrapped._episode_seed
                             # print("+++++++++++++ episode seed: ", epi_seed)
                             # print("*************  points add noise: ", record_env.unwrapped.points_add_noise)
@@ -333,12 +333,12 @@ if __name__ == "__main__":
                                     grasps_scores = pred_gg_ee.scores
 
                                 if not init_obj_exist:
-                                    obs, rewards, dones, info = record_env.step(np.zeros(7))
+                                    obs, rewards, terminated, truncated, info = record_env.step(np.zeros(7))
                                 else:
                                     # record_env.set_rt_graspmat_ee(grasps_ee)
                                     para = {"grasps_mat_ee": grasps_ee, "grasps_scores": grasps_scores}
                                     record_env.set_rt_paras(**para)
-                                    obs, rewards, dones, info = record_env.step(action)
+                                    obs, rewards, terminated, truncated, info = record_env.step(action)
 
                                 if args.save_all_grasp:
                                     grasps_ee, grasps_scores = record_env.unwrapped._compute_near_grasps_rt()

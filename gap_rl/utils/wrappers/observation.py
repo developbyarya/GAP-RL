@@ -2,15 +2,15 @@ from collections import OrderedDict, deque
 from copy import deepcopy
 from typing import Sequence
 
-import gym
+import gymnasium as gym
 import numpy as np
 from gap_rl.utils.common import (
     flatten_dict_keys,
     flatten_dict_space_keys,
     merge_dicts,
 )
-from gym import spaces
-from gym.wrappers import LazyFrames
+from gymnasium import spaces
+from gymnasium.wrappers import LazyFrames
 
 
 class RGBDObservationWrapper(gym.ObservationWrapper):
@@ -193,9 +193,9 @@ class RobotSegmentationObservationWrapper(gym.ObservationWrapper):
                 pcd_space.spaces["robot_seg"] = new_space
 
     def reset(self, **kwargs):
-        observation = self.env.reset(**kwargs)
+        observation, info = self.env.reset(**kwargs)
         self.robot_link_ids = self.env.robot_link_ids
-        return self.observation(observation)
+        return self.observation(observation), info
 
     def observation_image(self, observation: dict):
         image_obs = observation["image"]
@@ -330,10 +330,10 @@ class DictObservationStack(gym.ObservationWrapper):
         Returns:
             Stacked observations, reward, terminated, truncated, and information from the environment
         """
-        observation, reward, done, info = self.env.step(action)
+        observation, reward, terminated, truncated, info = self.env.step(action)
         for key in observation.keys():
             self.frames[key].append(observation[key])
-        return self.observation(observation), reward, done, info
+        return self.observation(observation), reward, terminated, truncated, info
 
     def reset(self, **kwargs):
         """Reset the environment with kwargs.
@@ -344,9 +344,9 @@ class DictObservationStack(gym.ObservationWrapper):
         Returns:
             The stacked observations
         """
-        obs = self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
 
         for key in obs.keys():
             [self.frames[key].append(obs[key]) for _ in range(self.num_stack)]
 
-        return self.observation(obs)
+        return self.observation(obs), info

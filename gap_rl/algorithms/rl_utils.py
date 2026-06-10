@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 import torch
 
 from gap_rl.algorithms.Networks.pointnet import PointNetfeat, GraspPointAppGroup
@@ -61,7 +61,7 @@ def sb3_make_env(
         env = DictObservationStack(env, num_stack=n_stack)
     if norm_action:
         env = NormalizeBoxActionWrapper(env)
-    env.seed(seed)
+    env.unwrapped.seed(seed)
     return env
 
 
@@ -121,7 +121,7 @@ def sb3_make_multienv(
             env = StackObservationWrapper(env)
         if norm_action:
             env = NormalizeBoxActionWrapper(env)
-        env.seed(seed + rank)
+        env.unwrapped.seed(seed + rank)
         return env
 
     return _init

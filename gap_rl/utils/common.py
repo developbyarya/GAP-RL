@@ -2,11 +2,11 @@ from collections import OrderedDict, defaultdict
 from typing import Dict, Sequence
 
 import os
-import gym
 import random
 import numpy as np
 import torch
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 
 from .logging_utils import logger
 
