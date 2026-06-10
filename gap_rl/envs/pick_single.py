@@ -1028,8 +1028,7 @@ class PickSingleEnv(BaseEnv):
             cur_sim_steps = self._elapsed_steps * self._sim_steps_per_control + sim_step
             cur_pose = self.drive_poses[cur_sim_steps]
             cur_q = self.qs[cur_sim_steps] if self.vary_speed else self.init_q
-            # cur_q = self.qs[cur_sim_steps] if self.vary_speed else self.init_q
-                self.drive_base.set_pose(Pose(p=cur_pose, q=cur_q))
+            self.drive_base.set_pose(Pose(p=cur_pose, q=cur_q))
 
             ## new drive
             self.drive_base.add_force_at_point(

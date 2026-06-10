@@ -102,24 +102,15 @@ class BaseEnv(gym.Env):
             renderer_kwargs = {}
         if self._renderer_type == "sapien":
             self._renderer = sapien.render.RenderSystem(**renderer_kwargs)
-            if shader_dir == "ibl":
-                _render_config = dict(camera_shader_dir="ibl", viewer_shader_dir="ibl")
-            elif shader_dir == "rt":
-                _render_config = dict(
-                    camera_shader_dir="rt",
-                    viewer_shader_dir="rt",
-                    rt_samples_per_pixel=32,
-                    rt_max_path_depth=8,
-                    rt_use_denoiser=True,
-                )
-            else:
-                _render_config = dict(
-                    camera_shader_dir=shader_dir, viewer_shader_dir=shader_dir
-                )
-            if render_config is None:
-                render_config = {}
-            _render_config.update(render_config)
-            sapien.render.set_global_config(**_render_config)
+            _sd = "default" if shader_dir == "ibl" else shader_dir
+            sapien.render.set_camera_shader_dir(_sd)
+            sapien.render.set_viewer_shader_dir(_sd)
+            if _sd == "rt":
+                sapien.render.set_ray_tracing_samples_per_pixel(32)
+                sapien.render.set_ray_tracing_path_depth(8)
+                sapien.render.set_ray_tracing_denoiser(True)
+            if render_config:
+                sapien.render.set_global_config(**render_config)
         elif self._renderer_type == "client":
             self._renderer = sapien.render.RenderClient(**renderer_kwargs)
         else:
