@@ -76,13 +76,7 @@ def main():
         print("cur model id: ", cur_id, model_ids[cur_id])
         env.reset(model_id=model_ids[cur_id])
         if render:
-            viewer = env.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
-            # print("Press [e] to start")
-            # while True:
-            #     if viewer.window.key_down("e"):
-            #         break
-            #     env.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
-            env.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
+            viewer = env.unwrapped.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
 
         time_dict["reset_time"][num] = time.time() - start_time
         cnt = 0
@@ -92,12 +86,7 @@ def main():
             obs, rew, terminated, truncated, info = env.step(np.zeros(env.agent.action_space.sample().shape))
             print("++ ", time.time() - t)
             if render:
-                # print("Press [c] to continue")
-                # while True:
-                #     if viewer.window.key_down("c"):
-                #         break
-                #     env.render(view_workspace=True, view_traj=True, view_grasps=True)
-                env.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
+                env.unwrapped.render(view_workspace=view_workspace, view_traj=view_traj, view_grasps=view_grasps, view_obj_bbdx=view_obj_bbdx)
             cnt += 1
             print("test ind, steps: ", num, cnt)
         time_dict["step_time"][num] = (time.time() - epi_start_time) / cnt

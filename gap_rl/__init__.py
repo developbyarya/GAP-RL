@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from . import sapien_compat
 from .utils.logging_utils import logger
 
 # ---------------------------------------------------------------------------- #

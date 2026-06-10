@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from gap_rl import ALGORITHM_DIR
+from gap_rl.envs.pick_single import PickSingleYCBEnv
 import yaml
 
 with open(ALGORITHM_DIR / "config/env_settings.yaml", "r") as f:
