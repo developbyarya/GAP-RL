@@ -2,12 +2,20 @@ import sapien
 from sapien import pysapien
 from sapien.physx import (
     PhysxArticulation,
+    PhysxArticulationJoint,
     PhysxArticulationLinkComponent,
+    PhysxCollisionShapeBox,
+    PhysxCollisionShapeCapsule,
+    PhysxCollisionShapeConvexMesh,
+    PhysxCollisionShapePlane,
+    PhysxCollisionShapeSphere,
+    PhysxCollisionShapeTriangleMesh,
     PhysxContact,
     PhysxMaterial,
 )
 from sapien.render import RenderBodyComponent
 
+# SAPIEN 2 type aliases
 sapien.Actor = pysapien.Entity
 sapien.ActorBase = pysapien.Entity
 sapien.Link = PhysxArticulationLinkComponent
@@ -16,6 +24,17 @@ sapien.Articulation = PhysxArticulation
 sapien.ArticulationBase = PhysxArticulation
 sapien.Contact = PhysxContact
 sapien.PhysicalMaterial = PhysxMaterial
+sapien.RenderMaterial = sapien.render.RenderMaterial
+sapien.RenderBody = sapien.render.RenderBodyComponent
+sapien.RenderBodyComponent = sapien.render.RenderBodyComponent
+sapien.RenderConfig = type("RenderConfig", (), {})
+sapien.Joint = PhysxArticulationJoint
+sapien.BoxGeometry = PhysxCollisionShapeBox
+sapien.CapsuleGeometry = PhysxCollisionShapeCapsule
+sapien.SphereGeometry = PhysxCollisionShapeSphere
+sapien.PlaneGeometry = PhysxCollisionShapePlane
+sapien.ConvexMeshGeometry = PhysxCollisionShapeConvexMesh
+sapien.NonconvexMeshGeometry = PhysxCollisionShapeTriangleMesh
 
 
 def _entity_get_visual_bodies(self):
