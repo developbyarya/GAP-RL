@@ -138,3 +138,23 @@ PhysxArticulationLinkComponent.get_visual_bodies = lambda self: self.entity.get_
 PhysxArticulationLinkComponent.hide_visual = lambda self: self.entity.hide_visual()
 PhysxArticulationLinkComponent.get_collision_shapes = lambda self: self.collision_shapes
 PhysxArticulationLinkComponent.get_id = lambda self: self.entity.get_id()
+
+# SAPIEN 3 wrapper bug: add_mounted_camera calls mount.add_component()
+# but PhysxArticulationLinkComponent doesn't have that method.
+_orig_add_mounted_camera = sapien.Scene.add_mounted_camera
+
+
+def _patched_add_mounted_camera(self, name, mount, pose, width, height, fovy, near, far):
+    from sapien.render import RenderCameraComponent
+    camera = RenderCameraComponent(width, height)
+    camera.set_fovy(fovy, compute_x=True)
+    camera.near = near
+    camera.far = far
+    target = mount.entity if hasattr(mount, "entity") else mount
+    target.add_component(camera)
+    camera.local_pose = pose
+    camera.name = name
+    return camera
+
+
+sapien.Scene.add_mounted_camera = _patched_add_mounted_camera
