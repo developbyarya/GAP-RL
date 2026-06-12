@@ -111,7 +111,24 @@ class UR5e_Robotiq85_old(BaseAgent):
         urdf_path = urdf_path.format(description=DESCRIPTION_DIR)
         urdf_config = parse_urdf_config(self.urdf_config, self.scene)
 
-        builder = loader.load_file_as_articulation_builder(urdf_path, urdf_config)
+        # Apply URDF config to loader
+        if "material" in urdf_config:
+            mtl = urdf_config["material"]
+            loader.set_material(mtl.static_friction, mtl.dynamic_friction, mtl.restitution)
+        if "density" in urdf_config:
+            loader.set_density(urdf_config["density"])
+        for link_name, link_cfg in urdf_config.get("link", {}).items():
+            if "material" in link_cfg:
+                mtl = link_cfg["material"]
+                loader.set_link_material(link_name, mtl.static_friction, mtl.dynamic_friction, mtl.restitution)
+            if "density" in link_cfg:
+                loader.set_link_density(link_name, link_cfg["density"])
+            if "patch_radius" in link_cfg:
+                loader.set_link_patch_radius(link_name, link_cfg["patch_radius"])
+            if "min_patch_radius" in link_cfg:
+                loader.set_link_min_patch_radius(link_name, link_cfg["min_patch_radius"])
+
+        builder = loader.load_file_as_articulation_builder(urdf_path)
 
         # Disable self collision for simplification
         for link_builder in builder.get_link_builders():

@@ -90,7 +90,24 @@ class BaseAgent:
         urdf_config = parse_urdf_config(self.urdf_config, self.scene)
         check_urdf_config(urdf_config)
 
-        self.robot = loader.load(urdf_path, urdf_config)
+        # Apply URDF config to loader
+        if "material" in urdf_config:
+            mtl = urdf_config["material"]
+            loader.set_material(mtl.static_friction, mtl.dynamic_friction, mtl.restitution)
+        if "density" in urdf_config:
+            loader.set_density(urdf_config["density"])
+        for link_name, link_cfg in urdf_config.get("link", {}).items():
+            if "material" in link_cfg:
+                mtl = link_cfg["material"]
+                loader.set_link_material(link_name, mtl.static_friction, mtl.dynamic_friction, mtl.restitution)
+            if "density" in link_cfg:
+                loader.set_link_density(link_name, link_cfg["density"])
+            if "patch_radius" in link_cfg:
+                loader.set_link_patch_radius(link_name, link_cfg["patch_radius"])
+            if "min_patch_radius" in link_cfg:
+                loader.set_link_min_patch_radius(link_name, link_cfg["min_patch_radius"])
+
+        self.robot = loader.load(urdf_path)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
         self.robot.set_name(Path(urdf_path).stem)
 
