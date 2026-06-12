@@ -565,11 +565,7 @@ class BaseEnv(gym.Env):
         if scene_config is None:
             scene_config = self._get_default_scene_config()
         sapien.physx.set_scene_config(scene_config)
-        sapien.physx.set_default_material(
-            sapien.physx.PhysxMaterial(
-                static_friction=1.0, dynamic_friction=1.0, restitution=0.0
-            )
-        )
+        sapien.physx.set_default_material(1.0, 1.0, 0.0)
         self._scene = sapien.Scene()
         self._scene.set_timestep(1.0 / self._sim_freq)
         self._scene_gravity = scene_config.gravity
