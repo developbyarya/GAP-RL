@@ -118,14 +118,15 @@ class BaseAgent:
 
     def _setup_controllers(self):
         self.controllers = OrderedDict()
+        sim_freq = round(1.0 / self.scene.get_timestep())
         for uid, config in self.controller_configs.items():
             if isinstance(config, dict):
                 self.controllers[uid] = CombinedController(
-                    config, self.robot, self._control_freq
+                    config, self.robot, self._control_freq, sim_freq
                 )
             else:
                 self.controllers[uid] = config.controller_cls(
-                    config, self.robot, self._control_freq
+                    config, self.robot, self._control_freq, sim_freq
                 )
 
     def _after_init(self):

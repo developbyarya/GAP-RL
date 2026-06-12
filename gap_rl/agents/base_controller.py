@@ -30,11 +30,7 @@ class BaseController:
         self.articulation = articulation
         self._control_freq = control_freq
 
-        # For action interpolation
-        if sim_freq is None:  # infer from scene
-            sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
-            sim_freq = round(1.0 / sim_timestep)
-        # Number of simulation steps per control step
+        assert sim_freq is not None, "sim_freq must be provided"
         self._sim_steps = sim_freq // control_freq
 
         self._initialize_joints()
