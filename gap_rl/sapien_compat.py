@@ -134,6 +134,9 @@ def _entity_set_angular_velocity(self, vel):
 pysapien.Entity.set_angular_velocity = _entity_set_angular_velocity
 
 
+# SAPIEN 3 rename: set_root_velocity -> set_root_linear_velocity
+PhysxArticulation.set_root_velocity = PhysxArticulation.set_root_linear_velocity
+
 PhysxArticulationLinkComponent.get_visual_bodies = lambda self: self.entity.get_visual_bodies()
 PhysxArticulationLinkComponent.hide_visual = lambda self: self.entity.hide_visual()
 PhysxArticulationLinkComponent.get_collision_shapes = lambda self: self.collision_shapes

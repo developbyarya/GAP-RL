@@ -204,6 +204,7 @@ class PickSingleEnv(BaseEnv):
         color=(0, 0, 0),
         name="",
         hide_visual=True,
+        static=False,
     ):
         builder = self._scene.create_actor_builder()
         if hide_visual:
@@ -215,7 +216,10 @@ class PickSingleEnv(BaseEnv):
         builder.add_box_collision(
             half_size=half_size, material=phy_mat, density=density
         )
-        box = builder.build(name=name)
+        if static:
+            box = builder.build_static(name=name)
+        else:
+            box = builder.build(name=name)
         box.set_pose(pose)
         return box
 
@@ -248,6 +252,7 @@ class PickSingleEnv(BaseEnv):
             color=(0.2, 0.2, 0.2),
             name="table",
             hide_visual=False,
+            static=True,
         )
         ## drive(conveyor, obj)
         drive_base_pos = self.drive_base.pose.p
