@@ -132,7 +132,7 @@ class UR5e_Robotiq85_old(BaseAgent):
 
         # Disable self collision for simplification
         for link_builder in builder.link_builders:
-            link_builder.set_collision_groups(1, 1, 2, 0)
+            link_builder.collision_groups = (1, 1, 2, 0)
         self.robot = builder.build(fix_root_link=self.fix_root_link)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
         self.robot.set_name(Path(urdf_path).stem)
