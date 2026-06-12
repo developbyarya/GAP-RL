@@ -131,7 +131,7 @@ class UR5e_Robotiq85_old(BaseAgent):
         builder = loader.load_file_as_articulation_builder(urdf_path)
 
         # Disable self collision for simplification
-        for link_builder in builder.get_link_builders():
+        for link_builder in builder.link_builders:
             link_builder.set_collision_groups(1, 1, 2, 0)
         self.robot = builder.build(fix_root_link=self.fix_root_link)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
