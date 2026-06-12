@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Sequence, Union
+import warnings
 
 import numpy as np
 from collections import deque
@@ -20,7 +21,11 @@ class PDEEPosController(PDJointPosController):
         super()._initialize_joints()
 
         # Pinocchio model to compute IK
-        self.pmodel = self.articulation.create_pinocchio_model()
+        try:
+            self.pmodel = self.articulation.create_pinocchio_model()
+        except Exception as e:
+            warnings.warn(f"Failed to create pinocchio model: {e}. IK will be disabled.")
+            self.pmodel = None
         self.qmask = np.zeros(self.articulation.dof, dtype=bool)
         self.qmask[self.joint_indices] = 1
 
@@ -57,6 +62,8 @@ class PDEEPosController(PDJointPosController):
 
     def compute_ik(self, target_pose, max_iterations=100):
         # Assume the target pose is defined in the base frame
+        if self.pmodel is None:
+            return None
         result, success, error = self.pmodel.compute_inverse_kinematics(
             self.ee_link_idx,
             target_pose,
