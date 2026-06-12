@@ -25,7 +25,7 @@ print("Observation space:", env.observation_space)
 print("Action space:", env.action_space)
 print()
 
-obs, _ = env.reset(model_id=env_cfg["ycb_train"]["model_ids"][0])
+obs, _ = env.reset(options={"model_id": env_cfg["ycb_train"]["model_ids"][0]})
 print("Obs keys:", list(obs.keys()))
 for k, v in obs.items():
     print(f"  {k}: {v.shape}, dtype={v.dtype}")

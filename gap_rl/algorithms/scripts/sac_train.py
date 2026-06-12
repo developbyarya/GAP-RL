@@ -238,7 +238,7 @@ if __name__ == "__main__":
                 for num in tqdm(
                     range(cfg["test_num"]), desc=f"Processing {eval_step / 1000000}M", colour="green", leave=True
                 ):
-                    obs, _ = record_env.reset(model_id=model_id)
+                    obs, _ = record_env.reset(options={"model_id": model_id})
                     epi_seed = record_env.unwrapped._episode_seed
                     success_flag = False
                     total_steps = 0

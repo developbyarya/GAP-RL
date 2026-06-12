@@ -195,7 +195,7 @@ class DictController(BaseController):
 
     def before_simulation_step(self):
         if self.balance_passive_force:
-            qf = self.articulation.compute_passive_force(external=False)
+            qf = self.articulation.compute_passive_force()
         else:
             qf = np.zeros(self.articulation.dof)
         for controller in self.controllers.values():

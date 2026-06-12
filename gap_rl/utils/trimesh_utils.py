@@ -9,51 +9,49 @@ def get_actor_meshes(actor: "sapien.ActorBase"):
     """Get actor (collision) meshes in the actor frame."""
     meshes = []
     for col_shape in actor.get_collision_shapes():
-        geom = col_shape.geometry
-        if isinstance(geom, sapien.BoxGeometry):
-            mesh = trimesh.creation.box(extents=2 * geom.half_lengths)
-        elif isinstance(geom, sapien.CapsuleGeometry):
+        if isinstance(col_shape, sapien.physx.PhysxCollisionShapeBox):
+            mesh = trimesh.creation.box(extents=2 * np.array(col_shape.half_size))
+        elif isinstance(col_shape, sapien.physx.PhysxCollisionShapeCapsule):
             mesh = trimesh.creation.capsule(
-                height=2 * geom.half_length, radius=geom.radius
+                height=2 * col_shape.half_length, radius=col_shape.radius
             )
-        elif isinstance(geom, sapien.SphereGeometry):
-            mesh = trimesh.creation.icosphere(radius=geom.radius)
-        elif isinstance(geom, sapien.PlaneGeometry):
+        elif isinstance(col_shape, sapien.physx.PhysxCollisionShapeSphere):
+            mesh = trimesh.creation.icosphere(radius=col_shape.radius)
+        elif isinstance(col_shape, sapien.physx.PhysxCollisionShapePlane):
             continue
         elif isinstance(
-            geom, (sapien.ConvexMeshGeometry, sapien.NonconvexMeshGeometry)
+            col_shape,
+            (sapien.physx.PhysxCollisionShapeConvexMesh, sapien.physx.PhysxCollisionShapeTriangleMesh),
         ):
-            vertices = geom.vertices  # [n, 3]
-            faces = geom.indices.reshape(-1, 3)  # [m * 3]
-            vertices = vertices * geom.scale
+            vertices = col_shape.vertices  # [n, 3]
+            faces = col_shape.triangles  # [m, 3]
+            vertices = vertices * col_shape.scale
             mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
         else:
-            raise TypeError(type(geom))
+            raise TypeError(type(col_shape))
         mesh.apply_transform(col_shape.get_local_pose().to_transformation_matrix())
         meshes.append(mesh)
     return meshes
 
 
-def get_visual_body_meshes(visual_body: "sapien.RenderBody"):
+def get_visual_body_meshes(visual_body: "sapien.render.RenderBodyComponent"):
     meshes = []
-    for render_shape in visual_body.get_render_shapes():
-        try:
-            vertices = render_shape.mesh.vertices * visual_body.scale  # [n, 3]
-        except:
-            print("Warning: current visual body has no mesh scale attribute")
-            vertices = render_shape.mesh.vertices
-        faces = render_shape.mesh.indices.reshape(-1, 3)  # [m * 3]
-        mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-        mesh.apply_transform(visual_body.local_pose.to_transformation_matrix())
-        meshes.append(mesh)
+    for render_shape in visual_body.render_shapes:
+        for part in render_shape.get_parts():
+            vertices = part.vertices  # [n, 3]
+            faces = part.triangles  # [m, 3]
+            mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+            mesh.apply_transform(visual_body.pose.to_transformation_matrix())
+            meshes.append(mesh)
     return meshes
 
 
 def get_actor_visual_meshes(actor: "sapien.ActorBase"):
     """Get actor (visual) meshes in the actor frame."""
     meshes = []
-    for vb in actor.get_visual_bodies():
-        meshes.extend(get_visual_body_meshes(vb))
+    for comp in actor.entity.components:
+        if isinstance(comp, sapien.render.RenderBodyComponent):
+            meshes.extend(get_visual_body_meshes(comp))
     return meshes
 
 

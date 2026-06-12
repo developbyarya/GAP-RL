@@ -54,7 +54,7 @@ class PDEEPosController(PDJointPosController):
     @property
     def ee_pose_at_base(self):
         to_base = self.articulation.pose.inv()
-        return to_base.transform(self.ee_pose)
+        return to_base * self.ee_pose
 
     def reset(self):
         super().reset()

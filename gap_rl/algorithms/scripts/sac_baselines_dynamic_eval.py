@@ -143,7 +143,7 @@ if __name__ == "__main__":
                     for num in tqdm(range(args.obj_test_num), desc=f'Processing 2M model', colour='red', leave=True):
                         t = time.time()
                         # print("+++++++++++++ env main seed: ", record_env.unwrapped._main_seed)
-                        obs, _ = record_env.reset(model_id=model_id)
+                        obs, _ = record_env.reset(options={"model_id": model_id})
                         epi_seed = record_env.unwrapped._episode_seed
                         # print("+++++++++++++ episode seed: ", epi_seed)
                         # print("*************  points add noise: ", record_env.unwrapped.points_add_noise)

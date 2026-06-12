@@ -7,6 +7,19 @@ import numpy as np
 import torch
 import open3d as o3d
 import sapien
+
+
+def get_entity_physx_component(entity):
+    for comp in entity.components:
+        if isinstance(comp, sapien.physx.PhysxRigidDynamicComponent):
+            return comp
+    return None
+
+def set_entity_damping(entity, linear, angular):
+    comp = get_entity_physx_component(entity)
+    if comp is not None:
+        comp.set_linear_damping(linear)
+        comp.set_angular_damping(angular)
 from gap_rl import ASSET_DIR, format_path
 from gap_rl.agents.base_agent import BaseAgent
 from gap_rl.agents.robots.ur5e_robotiq85_old import UR5e_Robotiq85_old
@@ -193,20 +206,23 @@ class PickSingleEnv(BaseEnv):
         hide_visual=True,
     ):
         builder = self._scene.create_actor_builder()
-        builder.add_box_visual(pose=Pose(), half_size=half_size, color=color)
+        if hide_visual:
+            builder.add_box_visual(pose=Pose(), half_size=half_size)
+        else:
+            mat = sapien.render.RenderMaterial()
+            mat.set_base_color([*color, 1.0])
+            builder.add_box_visual(pose=Pose(), half_size=half_size, material=mat)
         builder.add_box_collision(
             half_size=half_size, material=phy_mat, density=density
         )
         box = builder.build(name=name)
-        if hide_visual:
-            box.hide_visual()
         box.set_pose(pose)
         return box
 
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        set_entity_damping(self.obj, 0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
         phy_mat = self._scene.create_physical_material(
@@ -242,7 +258,7 @@ class PickSingleEnv(BaseEnv):
         self.conveyor_drive = self._scene.create_drive(
             self.drive_base, pose_d, self.obj, Pose()
         )
-        self.conveyor_drive.lock_motion(False, False, False, False, False, False)
+
 
     def _load_model(self):
         """Load the target object."""
@@ -298,6 +314,9 @@ class PickSingleEnv(BaseEnv):
 
     def reset(self, *, seed=None, reconfigure=False, model_id=None, model_scale=None, options=None):
         self.set_episode_rng(seed)
+        if options is not None:
+            model_id = options.get("model_id", model_id)
+            model_scale = options.get("model_scale", model_scale)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
         self._cache_info.clear()
@@ -362,7 +381,7 @@ class PickSingleEnv(BaseEnv):
 
             # set conveyor pose & obj pose
             drive_base_p = np.hstack([xy, self.box_halfsize[2]])
-            self.drive_poses = None
+            self.drive_poses = drive_base_p[None]
         else:
             if self.dynamic_paras is None:
                 if self.gen_traj_mode == "line":
@@ -442,8 +461,9 @@ class PickSingleEnv(BaseEnv):
         self.obj.set_pose(Pose(obj_p, self.init_q))
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.obj.velocity)
-        ang_vel = np.linalg.norm(self.obj.angular_velocity)
+        obj_comp = get_entity_physx_component(self.obj)
+        lin_vel = np.linalg.norm(obj_comp.linear_velocity if obj_comp else 0)
+        ang_vel = np.linalg.norm(obj_comp.angular_velocity if obj_comp else 0)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
@@ -473,19 +493,23 @@ class PickSingleEnv(BaseEnv):
     @property
     def obj_pose(self):
         """Get the center of mass (COM) pose."""
-        return self.obj.pose.transform(self.obj.cmass_local_pose)
+        comp = get_entity_physx_component(self.obj)
+        return self.obj.pose * comp.cmass_local_pose
 
     def _get_cam_extrins(self, cam_name):
         self.update_render()
         # world2cam, <=> camera_hand_color_frame.pose.inv().to_transformation_matrix()
         if isinstance(self._cameras["hand_realsense"].camera, StereoDepthSensor):
-            self.cam_paras[cam_name + "_extrinsic"] = self._cameras[
+            ext = self._cameras[
                 "hand_realsense"
             ].camera._cam_rgb.get_extrinsic_matrix()
         else:
-            self.cam_paras[cam_name + "_extrinsic"] = self._cameras[
+            ext = self._cameras[
                 "hand_realsense"
             ].camera.get_extrinsic_matrix()
+        if ext.shape == (3, 4):
+            ext = np.vstack([ext, [[0, 0, 0, 1]]])
+        self.cam_paras[cam_name + "_extrinsic"] = ext
 
     def _get_cam_info(self, cam_name):
         if isinstance(self._cameras["hand_realsense"].camera, StereoDepthSensor):
@@ -503,10 +527,10 @@ class PickSingleEnv(BaseEnv):
     def _initialize_task(self, max_trials=100):
         # pass
         self.contact_flag = False
-        self.conveyor_drive.set_x_properties(stiffness=1e6, damping=1e3)
-        self.conveyor_drive.set_y_properties(stiffness=1e6, damping=1e3)
-        self.conveyor_drive.set_z_properties(stiffness=1e8, damping=1e4)
-        self.conveyor_drive.set_slerp_properties(stiffness=1e6, damping=1e3)
+        self.conveyor_drive.set_drive_property_x(1e6, 1e3)
+        self.conveyor_drive.set_drive_property_y(1e6, 1e3)
+        self.conveyor_drive.set_drive_property_z(1e8, 1e4)
+        self.conveyor_drive.set_drive_property_slerp(1e6, 1e3)
 
     def _compute_near_grasps(self):
         # angle_filter, nearest, random, near4, near4_filter
@@ -1018,8 +1042,9 @@ class PickSingleEnv(BaseEnv):
         info = self.get_info(obs=obs)
         reward = self.get_reward(obs=obs, action=action, info=info)
         info.update(self._cache_info)
-        done = self.get_done(obs=obs, info=info)
-        return obs, reward, done, info
+        terminated = self.get_done(obs=obs, info=info)
+        truncated = False
+        return obs, reward, terminated, truncated, info
 
     def _after_simulation_step(self, sim_step):
         if not self.gen_traj_mode:
@@ -1031,10 +1056,12 @@ class PickSingleEnv(BaseEnv):
             self.drive_base.set_pose(Pose(p=cur_pose, q=cur_q))
 
             ## new drive
-            self.drive_base.add_force_at_point(
-                -self.drive_base.get_mass() * self._scene_gravity,
-                self.drive_base.pose.p,
-            )
+            drive_comp = get_entity_physx_component(self.drive_base)
+            if drive_comp is not None:
+                drive_comp.add_force_at_point(
+                    -drive_comp.get_mass() * self._scene_gravity,
+                    self.drive_base.pose.p,
+                )
             is_agent_contact_obj, multi_impluse = self.agent.check_contact(
                 self.obj, min_impulse=0.001
             )
@@ -1042,10 +1069,10 @@ class PickSingleEnv(BaseEnv):
                 self.contact_flag = True
                 self.contact_obj_pose = self.obj_pose
             if self.contact_flag:
-                self.conveyor_drive.set_x_properties(stiffness=0, damping=0)
-                self.conveyor_drive.set_y_properties(stiffness=0, damping=0)
-                self.conveyor_drive.set_z_properties(stiffness=0, damping=0)
-                self.conveyor_drive.set_slerp_properties(stiffness=0, damping=0)
+                self.conveyor_drive.set_drive_property_x(0, 0)
+                self.conveyor_drive.set_drive_property_y(0, 0)
+                self.conveyor_drive.set_drive_property_z(0, 0)
+                self.conveyor_drive.set_drive_property_slerp(0, 0)
 
     def check_robot_static(self, thresh=0.2):
         # Assume that the last two DoF is gripper
@@ -1053,7 +1080,8 @@ class PickSingleEnv(BaseEnv):
         return np.max(np.abs(qvel)) <= thresh
 
     def check_obj_static(self, vel_thresh=0.05):
-        vel = np.sqrt((self.obj.get_velocity() ** 2).sum(axis=-1))
+        obj_comp = get_entity_physx_component(self.obj)
+        vel = np.sqrt((obj_comp.get_linear_velocity() ** 2).sum(axis=-1))
         return vel < vel_thresh
 
     def evaluate_success(self):
@@ -1158,12 +1186,13 @@ class PickSingleEnv(BaseEnv):
 
         gripper_finger_contacts = self.agent.check_contact_fingers(self.obj)
         obj_pose = self.obj_pose
+        obj_comp = get_entity_physx_component(self.obj)
         obj_velangvel = np.concatenate(
-            (self.obj.get_velocity(), self.obj.get_angular_velocity())
+            (obj_comp.get_linear_velocity(), obj_comp.get_angular_velocity())
         )
         ee_pose = self.tcp.pose
         ee_velangvel = np.concatenate(
-            (self.tcp.get_velocity(), self.tcp.get_angular_velocity())
+            (self.tcp.get_linear_velocity(), self.tcp.get_angular_velocity())
         )
         arm_qvel = self.agent.robot.get_qvel()[: self.num_joints]
         arm_qacc = self.agent.robot.get_qacc()[: self.num_joints]
@@ -1333,7 +1362,7 @@ def build_actor_ycb(
     model_dir = Path(root_dir) / "models" / model_id
 
     collision_file = str(model_dir / "collision_coacd.obj")
-    builder.add_multiple_collisions_from_file(
+    builder.add_multiple_convex_collisions_from_file(
         filename=collision_file,
         scale=[scale] * 3,
         material=physical_material,
@@ -1455,7 +1484,7 @@ class PickSingleYCBEnv_v1(PickSingleEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        set_entity_damping(self.obj, 0.1, 0.1)
 
     def _load_model(self):
         density = self.model_db[self.model_id].get("density", 1000)
@@ -1580,7 +1609,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
     DEFAULT_GRASP_JSON = "info_grasp_v2.json"
 
     def _load_model(self):
-        mat = self._renderer.create_material()
+        mat = sapien.render.RenderMaterial()
         color = self._episode_rng.uniform(0.2, 0.8, 3)
         color = np.hstack([color, 1.0])
         mat.set_base_color(color)
@@ -1598,7 +1627,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
         )
 
         collision_file = str(model_dir / f"{model_hash_id}_coacd_norm.obj")
-        builder.add_multiple_collisions_from_file(
+        builder.add_multiple_convex_collisions_from_file(
             filename=collision_file,
             scale=[self.model_scale] * 3,
             material=phy_mat,
@@ -1632,7 +1661,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        set_entity_damping(self.obj, 0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
         phy_mat = self._scene.create_physical_material(
@@ -1653,7 +1682,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )
-        self.conveyor_drive.lock_motion(False, False, False, False, False, False)
+
 
     def _get_init_z(self):
         return self.obj_aabb_halfsize[2]
@@ -1705,7 +1734,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         return obj_p
 
     def _load_model(self):
-        mat = self._renderer.create_material()
+        mat = sapien.render.RenderMaterial()
         color = self._episode_rng.uniform(0.2, 0.8, 3)
         color = np.hstack([color, 1.0])
         mat.set_base_color(color)
@@ -1721,7 +1750,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         model_dir = Path(self.asset_root) / f"{self.model_id}"
 
         collision_file = str(model_dir / f"textured_0_coacd.obj")
-        builder.add_multiple_collisions_from_file(
+        builder.add_multiple_convex_collisions_from_file(
             filename=collision_file,
             scale=[self.model_scale] * 3,
             material=phy_mat,
@@ -1752,7 +1781,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        set_entity_damping(self.obj, 0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
         phy_mat = self._scene.create_physical_material(
@@ -1773,7 +1802,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )
-        self.conveyor_drive.lock_motion(False, False, False, False, False, False)
+
 
     def compute_dense_reward(self, info, **kwargs):
         return 0
@@ -1797,7 +1826,7 @@ def build_actor_egad(
     split = "eval"
 
     collision_file = Path(root_dir) / f"egad_{split}_set_coacd" / f"{model_id}.obj"
-    builder.add_multiple_collisions_from_file(
+    builder.add_multiple_convex_collisions_from_file(
         filename=str(collision_file),
         scale=[scale] * 3,
         material=physical_material,
@@ -1904,7 +1933,7 @@ class PickSingleEGADEnv(PickSingleEnv):
                 )
 
     def _load_model(self):
-        mat = self._renderer.create_material()
+        mat = sapien.render.RenderMaterial()
         color = self._episode_rng.uniform(0.2, 0.8, 3)
         color = np.hstack([color, 1.0])
         mat.set_base_color(color)
@@ -1928,7 +1957,7 @@ class PickSingleEGADEnv(PickSingleEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        set_entity_damping(self.obj, 0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
         phy_mat = self._scene.create_physical_material(
@@ -1949,7 +1978,7 @@ class PickSingleEGADEnv(PickSingleEnv):
         self.conveyor_drive = self._scene.create_drive(
             None, Pose(), self.drive_base, Pose()
         )
-        self.conveyor_drive.lock_motion(False, False, False, False, False, False)
+
 
     def _get_init_z(self):
         return self.obj_aabb_halfsize[2]

@@ -133,7 +133,7 @@ def get_actor_state(actor: sapien.Actor):
         vel = np.zeros(3)
         ang_vel = np.zeros(3)
     else:
-        vel = actor.get_velocity()  # [3]
+        vel = actor.get_linear_velocity()  # [3]
         ang_vel = actor.get_angular_velocity()  # [3]
     return np.hstack([pose.p, pose.q, vel, ang_vel])
 
@@ -149,7 +149,7 @@ def set_actor_state(actor: sapien.Actor, state: np.ndarray):
 def get_articulation_state(articulation: sapien.Articulation):
     root_link = articulation.get_links()[0]
     pose = root_link.get_pose()
-    vel = root_link.get_velocity()  # [3]
+    vel = root_link.get_linear_velocity()  # [3]
     ang_vel = root_link.get_angular_velocity()  # [3]
     qpos = articulation.get_qpos()
     qvel = articulation.get_qvel()
@@ -180,14 +180,36 @@ def get_articulation_padded_state(articulation: sapien.Articulation, max_dof: in
 # -------------------------------------------------------------------------- #
 # Contact
 # -------------------------------------------------------------------------- #
+def _to_contact_body(x):
+    if isinstance(x, sapien.physx.PhysxRigidBaseComponent):
+        return x
+    if isinstance(x, sapien.physx.PhysxArticulationLinkComponent):
+        return x
+    return x
+
+def get_body_from_actor(actor):
+    if isinstance(actor, sapien.physx.PhysxRigidBaseComponent):
+        return actor
+    if isinstance(actor, sapien.physx.PhysxArticulationLinkComponent):
+        return actor
+    for comp in actor.components:
+        if isinstance(comp, sapien.physx.PhysxRigidBaseComponent):
+            return comp
+    return None
+
 def get_pairwise_contacts(
-    contacts: List[sapien.Contact], actor0: sapien.ActorBase, actor1: sapien.ActorBase
-) -> List[Tuple[sapien.Contact, bool]]:
+    contacts, actor0, actor1
+):
     pairwise_contacts = []
+    b0 = get_body_from_actor(actor0)
+    b1 = get_body_from_actor(actor1)
     for contact in contacts:
-        if contact.actor0 == actor0 and contact.actor1 == actor1:
+        c_bodies = contact.bodies
+        if len(c_bodies) < 2:
+            continue
+        if c_bodies[0] == b0 and c_bodies[1] == b1:
             pairwise_contacts.append((contact, True))
-        elif contact.actor0 == actor1 and contact.actor1 == actor0:
+        elif c_bodies[0] == b1 and c_bodies[1] == b0:
             pairwise_contacts.append((contact, False))
     return pairwise_contacts
 
@@ -343,11 +365,12 @@ def set_render_material(material: "sapien.render.RenderMaterial", **kwargs):
 
 def set_articulation_render_material(articulation: "sapien.Articulation", **kwargs):
     for link in articulation.get_links():
-        for b in link.get_visual_bodies():
-            for s in b.get_render_shapes():
-                mat = s.material
-                set_render_material(mat, **kwargs)
-                # s.set_material(mat)
+        for comp in link.entity.components:
+            if isinstance(comp, sapien.render.RenderBodyComponent):
+                for s in comp.render_shapes:
+                    for part in s.get_parts():
+                        mat = part.material
+                        set_render_material(mat, **kwargs)
 
 
 # -------------------------------------------------------------------------- #

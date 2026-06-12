@@ -350,7 +350,7 @@ class BaseEnv(gym.Env):
 
     def _add_ground(self, altitude=0.0, render=True):
         if render:
-            rend_mtl = self._renderer.create_material()
+            rend_mtl = sapien.render.RenderMaterial()
             rend_mtl.base_color = [0.06, 0.08, 0.12, 1]
             rend_mtl.metallic = 0.0
             rend_mtl.roughness = 0.9
@@ -401,7 +401,7 @@ class BaseEnv(gym.Env):
         self._scene.set_ambient_light([0.3, 0.3, 0.3])
         # Only the first of directional lights can have shadow
         self._scene.add_directional_light(
-            [1, 1, -1], [1, 1, 1], shadow=shadow, scale=5, shadow_map_size=2048
+            [1, 1, -1], [1, 1, 1], shadow=shadow, shadow_scale=5, shadow_map_size=2048
         )
         self._scene.add_directional_light([0, 0, -1], [1, 1, 1])
 
@@ -642,8 +642,10 @@ class BaseEnv(gym.Env):
         """
         # CAUTION: call `set_scene` after assets are loaded.
         self._viewer.set_scene(self._scene)
-        self._viewer.toggle_axes(True)
-        self._viewer.toggle_camera_lines(False)
+        if hasattr(self._viewer, 'toggle_axes'):
+            self._viewer.toggle_axes(True)
+        if hasattr(self._viewer, 'toggle_camera_lines'):
+            self._viewer.toggle_camera_lines(False)
 
     def render(self, mode="human", **kwargs):
         self.update_render()
