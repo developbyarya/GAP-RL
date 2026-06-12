@@ -553,14 +553,7 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     def _get_default_scene_config(self):
         scene_config = sapien.physx.PhysxSceneConfig()
-        scene_config.default_dynamic_friction = 1.0
-        scene_config.default_static_friction = 1.0
-        scene_config.default_restitution = 0.0
-        scene_config.contact_offset = 0.02
         scene_config.enable_pcm = False
-        scene_config.solver_iterations = 25
-        # NOTE(fanbo): solver_velocity_iterations=0 is undefined in PhysX
-        scene_config.solver_velocity_iterations = 1
         if self._renderer_type == "client":
             scene_config.disable_collision_visual = True
         return scene_config
@@ -572,6 +565,11 @@ class BaseEnv(gym.Env):
         if scene_config is None:
             scene_config = self._get_default_scene_config()
         sapien.physx.set_scene_config(scene_config)
+        sapien.physx.set_default_material(
+            sapien.physx.PhysxMaterial(
+                static_friction=1.0, dynamic_friction=1.0, restitution=0.0
+            )
+        )
         self._scene = sapien.Scene()
         self._scene.set_timestep(1.0 / self._sim_freq)
         self._scene_gravity = scene_config.gravity
