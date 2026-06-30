@@ -1,4 +1,4 @@
-from setuptools import find_packages, setup
+from setuptools import find_packages, setup, find_namespace_packages
 
 
 def read_requirements():
@@ -13,6 +13,7 @@ setup(
     version="0.1.0",
     description="GAP-RL: Grasps As Points for RL Towards Dynamic Object Grasping",
     author="THU-RoboLab",
+    packages=find_packages(exclude=["img", "img.*", "assets", "assets.*"]),
     python_requires=">=3.8",
     setup_requires=["setuptools>=62.3.0"],
     # install_requires=read_requirements(),
