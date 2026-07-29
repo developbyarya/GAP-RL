@@ -16,7 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import get_parameters_by_name, polyak_update
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.sac.policies import CnnPolicy, MlpPolicy, MultiInputPolicy, SACPolicy
-from stable_baselines3.sac.policies import Actor
+from stable_baselines3.sac.policies import Actor, LOG_STD_MAX, LOG_STD_MIN
 from stable_baselines3.common.policies import ContinuousCritic, BaseModel
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
@@ -54,7 +54,8 @@ class CustomActor(Actor):
             normalize_images=normalize_images,
         )
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
-        self.lstm = nn.LSTM(last_layer_dim, last_layer_dim, batch_first=True)
+        # LSTM sits on raw features (before latent_pi), so size must match features_dim
+        self.lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
         self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)  # predict 6d pose (pos, quat)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
@@ -86,13 +87,16 @@ class CustomActor(Actor):
 
         latent_pi = self.latent_pi(features)
         mean_actions = self.mu(latent_pi)
-        log_std = self.log_std(latent_pi)
-        
-        kwargs = dict(latent_pi=latent_pi)
+
         if self.use_sde:
-            kwargs["latent_sde"] = latent_pi
-            
-        return mean_actions, log_std, kwargs, lstm_states
+            return mean_actions, self.log_std, dict(latent_sde=latent_pi), lstm_states
+        log_std = self.log_std(latent_pi)
+        log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        return mean_actions, log_std, {}, lstm_states
+
+    def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
+        mean_actions, log_std, kwargs, _ = self.get_action_dist_params(obs)
+        return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
 
     def action_log_prob(self, obs: th.Tensor, lstm_states: Optional[Tuple[th.Tensor, th.Tensor]] = None) -> Tuple[Tuple[th.Tensor, th.Tensor], th.Tensor, th.Tensor, Tuple[th.Tensor, th.Tensor]]:
         assert self.use_sde, "use_sde True."
