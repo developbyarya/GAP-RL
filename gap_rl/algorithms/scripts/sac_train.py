@@ -145,7 +145,6 @@ if __name__ == "__main__":
             tensorboard_log=log_dir + "sac_opendoor_tb/",
             seed=seed,
             device=cfg["device"],
-            distill=args.distill,
             verbose=1,
         )
     else:
