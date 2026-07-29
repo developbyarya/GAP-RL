@@ -124,11 +124,11 @@ if __name__ == "__main__":
         model = CustomSAC(
             "CustomSACPolicy",
             vec_env,
-            batch_size=256,  # 1024, 400
+            batch_size=512,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
-            train_freq=16,  # 4, 64
-            gradient_steps=16,  # 2, 4
+            train_freq=64,  # 4, 64
+            gradient_steps=64,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,
@@ -152,11 +152,11 @@ if __name__ == "__main__":
         model = SAC(
             "MultiInputPolicy",
             vec_env,
-            batch_size=256,  # 1024, 400
+            batch_size=512,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
-            train_freq=16,  # 4, 64
-            gradient_steps=16,  # 2, 4
+            train_freq=64,  # 4, 64
+            gradient_steps=64,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,

@@ -54,6 +54,7 @@ class CustomActor(Actor):
             normalize_images=normalize_images,
         )
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
+        self.lstm = nn.LSTM(last_layer_dim, last_layer_dim, batch_first=True)
         self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)  # predict 6d pose (pos, quat)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
@@ -63,9 +64,39 @@ class CustomActor(Actor):
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
-    def action_log_prob(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+    def get_action_dist_params(self, obs: th.Tensor, lstm_states: Optional[Tuple[th.Tensor, th.Tensor]] = None) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor], Tuple[th.Tensor, th.Tensor]]:
+        features = self.extract_features(obs, self.features_extractor)
+        
+        # Process sequence or single transition through LSTM
+        if features.dim() == 2:
+            features = features.unsqueeze(1)  # (batch, seq_len=1, dim)
+            squeeze_output = True
+        else:
+            squeeze_output = False
+            
+        if lstm_states is not None:
+            lstm_out, lstm_states = self.lstm(features, lstm_states)
+        else:
+            lstm_out, lstm_states = self.lstm(features)
+            
+        if squeeze_output:
+            features = lstm_out.squeeze(1)
+        else:
+            features = lstm_out
+
+        latent_pi = self.latent_pi(features)
+        mean_actions = self.mu(latent_pi)
+        log_std = self.log_std(latent_pi)
+        
+        kwargs = dict(latent_pi=latent_pi)
+        if self.use_sde:
+            kwargs["latent_sde"] = latent_pi
+            
+        return mean_actions, log_std, kwargs, lstm_states
+
+    def action_log_prob(self, obs: th.Tensor, lstm_states: Optional[Tuple[th.Tensor, th.Tensor]] = None) -> Tuple[Tuple[th.Tensor, th.Tensor], th.Tensor, th.Tensor, Tuple[th.Tensor, th.Tensor]]:
         assert self.use_sde, "use_sde True."
-        mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
+        mean_actions, log_std, kwargs, lstm_states = self.get_action_dist_params(obs, lstm_states)
         extra_pred = self.extra_pred(kwargs['latent_sde'])
         if self.extra_pred_dim == 7:
             extra_pred = th.cat(
@@ -78,8 +109,8 @@ class CustomActor(Actor):
         else:
             raise NotImplementedError
         target_pred = self.target_pred(kwargs['latent_sde'])
-        # return action and associated log prob, with predicted 6d pose
-        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs), extra_pred, target_pred
+        # return action and associated log prob, with predicted 6d pose and lstm states
+        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs), extra_pred, target_pred, lstm_states
 
     def features_forward(self, obs: th.Tensor):
         with th.no_grad():
@@ -118,6 +149,8 @@ class CustomContinuousCritic(BaseModel):
             self.add_module(f"qf{idx}", q_net)
             self.q_networks.append(q_net)
 
+        self.lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
+        
         self.extra_pred_dim = extra_pred_dim
         self.extra_pred = nn.Linear(features_dim, extra_pred_dim)  # predict 6d pose (pos, quat)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
@@ -127,28 +160,56 @@ class CustomContinuousCritic(BaseModel):
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
-    def forward(self, obs: th.Tensor, actions: th.Tensor):
+    def forward(self, obs: th.Tensor, actions: th.Tensor, lstm_states: Optional[Tuple[th.Tensor, th.Tensor]] = None):
         # Learn the features extractor using the policy loss only
         # when the features_extractor is shared with the actor
         with th.set_grad_enabled(not self.share_features_extractor):
             # features = self.features_extractor(obs, actions)
             features = self.features_extractor(obs)
-        qvalue_input = th.cat([features, actions], dim=1)
+            
+        # Process sequence or single transition through LSTM
+        if features.dim() == 2:
+            features = features.unsqueeze(1)  # (batch, seq_len=1, dim)
+            squeeze_output = True
+        else:
+            squeeze_output = False
+            
+        if lstm_states is not None:
+            lstm_out, lstm_states = self.lstm(features, lstm_states)
+        else:
+            lstm_out, lstm_states = self.lstm(features)
+            
+        if squeeze_output:
+            features = lstm_out.squeeze(1)
+        else:
+            features = lstm_out
+            
+        qvalue_input = th.cat([features, actions], dim=-1)
         extra_pred = None
         if self.extra_pred_dim:
             extra_pred = self.extra_pred(features)
             if self.extra_pred_dim == 7:  # normalize quaternion
-                extra_pred = th.cat((F.normalize(extra_pred[:, :4], p=2, dim=-1), extra_pred[:, 4:]), dim=-1)
+                extra_pred = th.cat((F.normalize(extra_pred[..., :4], p=2, dim=-1), extra_pred[..., 4:]), dim=-1)
             elif self.extra_pred_dim == 9:  # normalize r_x, r_y
                 extra_pred = th.cat(
-                    (F.normalize(extra_pred[:, :3], p=2, dim=-1), F.normalize(extra_pred[:, 3:6], p=2, dim=-1), extra_pred[:, 6:]), dim=-1
+                    (F.normalize(extra_pred[..., :3], p=2, dim=-1), F.normalize(extra_pred[..., 3:6], p=2, dim=-1), extra_pred[..., 6:]), dim=-1
                 )
             else:
                 raise NotImplementedError
         target_pred = self.target_pred(features)
-        return tuple(q_net(qvalue_input) for q_net in self.q_networks), extra_pred, target_pred
+        
+        # If input was a sequence, we might want to apply q_networks over the sequence, but q_net expects 2D. 
+        # For simplicity, if we have sequence dimension, we might need to reshape.
+        if not squeeze_output:
+            qvalue_input_shape = qvalue_input.shape
+            qvalue_input = qvalue_input.view(-1, qvalue_input_shape[-1])
+            q_vals = tuple(q_net(qvalue_input).view(*qvalue_input_shape[:-1], 1) for q_net in self.q_networks)
+        else:
+            q_vals = tuple(q_net(qvalue_input) for q_net in self.q_networks)
+            
+        return q_vals, extra_pred, target_pred, lstm_states
 
-    def q1_forward(self, obs: th.Tensor, actions: th.Tensor) -> th.Tensor:
+    def q1_forward(self, obs: th.Tensor, actions: th.Tensor, lstm_states: Optional[Tuple[th.Tensor, th.Tensor]] = None) -> th.Tensor:
         """
         Only predict the Q-value using the first network.
         This allows to reduce computation when all the estimates are not needed
@@ -157,8 +218,30 @@ class CustomContinuousCritic(BaseModel):
         with th.no_grad():
             # features = self.features_extractor(obs, actions)
             features = self.features_extractor(obs)
-        return self.q_networks[0](th.cat([features, actions], dim=1))
-        # return self.q_networks[0](features)
+            
+        if features.dim() == 2:
+            features = features.unsqueeze(1)
+            squeeze_output = True
+        else:
+            squeeze_output = False
+            
+        if lstm_states is not None:
+            lstm_out, _ = self.lstm(features, lstm_states)
+        else:
+            lstm_out, _ = self.lstm(features)
+            
+        if squeeze_output:
+            features = lstm_out.squeeze(1)
+        else:
+            features = lstm_out
+            
+        qvalue_input = th.cat([features, actions], dim=-1)
+        if not squeeze_output:
+            qvalue_input_shape = qvalue_input.shape
+            qvalue_input = qvalue_input.view(-1, qvalue_input_shape[-1])
+            return self.q_networks[0](qvalue_input).view(*qvalue_input_shape[:-1], 1)
+        
+        return self.q_networks[0](qvalue_input)
 
     def features_forward(self, obs: th.Tensor):
         with th.no_grad():
@@ -502,7 +585,7 @@ class CustomSAC(SAC):
                 self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
-            (actions_pi, log_prob), pred_pose_actor, pred_target_actor = self.actor.action_log_prob(replay_data.observations)
+            (actions_pi, log_prob), pred_pose_actor, pred_target_actor, _ = self.actor.action_log_prob(replay_data.observations)
             # actor_aux_loss = goal_pred_loss(pred_pose_actor, close_grasp_pose_ee)
             # actor_aux_loss = goal_pred_posquat_loss(pred_pose_actor, close_grasp_pose_ee)
             actor_aux_loss = goal_pred_rotmat_loss(pred_pose_actor, close_grasp_pose_ee)
@@ -533,10 +616,10 @@ class CustomSAC(SAC):
 
             with th.no_grad():
                 # Select action according to policy
-                (next_actions, next_log_prob), _, _ = self.actor.action_log_prob(replay_data.next_observations)
+                (next_actions, next_log_prob), _, _, _ = self.actor.action_log_prob(replay_data.next_observations)
                 # Compute the next Q values: min over all critics targets
                 # next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
-                next_q_values, _, _ = self.critic_target(replay_data.next_observations, next_actions)
+                next_q_values, _, _, _ = self.critic_target(replay_data.next_observations, next_actions)
                 next_q_values = th.cat(next_q_values, dim=1)
                 next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
                 # add entropy term
@@ -546,7 +629,7 @@ class CustomSAC(SAC):
 
             # Get current Q-values estimates for each critic network
             # using action from the replay buffer
-            current_q_values, pred_pose_critic, pred_target_critic = self.critic(replay_data.observations, replay_data.actions)
+            current_q_values, pred_pose_critic, pred_target_critic, _ = self.critic(replay_data.observations, replay_data.actions)
             # critic_aux_loss = goal_pred_loss(pred_pose_critic, close_grasp_pose_ee)
             # critic_aux_loss = goal_pred_posquat_loss(pred_pose_critic, close_grasp_pose_ee)
             critic_aux_loss = goal_pred_rotmat_loss(pred_pose_critic, close_grasp_pose_ee)
@@ -571,7 +654,7 @@ class CustomSAC(SAC):
             # Alternative: actor_loss = th.mean(log_prob - qf1_pi)
             # Min over all critic networks
             # q_values_pi = th.cat(self.critic(replay_data.observations, actions_pi), dim=1)
-            q_values, _, _ = self.critic(replay_data.observations, actions_pi)
+            q_values, _, _, _ = self.critic(replay_data.observations, actions_pi)
             q_values_pi = th.cat(q_values, dim=1)
             min_qf_pi, _ = th.min(q_values_pi, dim=1, keepdim=True)
             actor_loss = (ent_coef * log_prob - min_qf_pi).mean() + actor_aux_loss * aux_weight + actor_target_loss * target_weight

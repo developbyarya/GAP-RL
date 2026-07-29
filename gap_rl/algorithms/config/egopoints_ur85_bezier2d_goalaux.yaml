@@ -2,7 +2,7 @@ device: cuda:0
 max_steps: 100
 test_num: 20
 eval_steps: [2000000]
-train_procs: 4
+train_procs: 8
 eval_procs: 1
 
 robot_id: ur5e_robotiq85_old
