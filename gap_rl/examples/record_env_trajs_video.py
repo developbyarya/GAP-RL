@@ -1,7 +1,8 @@
-"""Headless video recording of camera POV for pick env trajectories.
+"""Headless recording of camera POV trajectories.
 
-Based on test_env_trajs.py, but never opens a viewer window. Frames are taken
-from the onboard hand camera (hand_realsense) with optional LoG grasp overlays.
+Supports:
+  - preview video (optional debug overlays)
+  - clean training dumps: RGB, depth, LoG grasp poses (4x4 EE-frame)
 """
 
 import argparse
@@ -29,18 +30,8 @@ def setup_seed(seed=1029):
     torch.backends.cudnn.deterministic = True
 
 
-def capture_camera_rgb(
-    env,
-    camera_name="hand_realsense",
-    view_workspace=True,
-    view_traj=True,
-    view_grasps=True,
-    view_obj_bbdx=False,
-):
-    """Render one RGB frame from a scene camera with optional debug overlays."""
-    e = env.unwrapped
+def _add_overlays(e, view_workspace, view_traj, view_grasps, view_obj_bbdx):
     overlays = []
-
     if view_workspace and e.gen_traj_mode in ["random2d", "bezier2d"]:
         overlays.append(e._view_workspace())
     if view_traj:
@@ -63,33 +54,73 @@ def capture_camera_rgb(
             overlays.append(e._view_pred_grasp())
     if view_obj_bbdx:
         overlays.append(e._view_obj_bbdx())
+    return overlays
+
+
+def capture_frame(
+    env,
+    camera_name="hand_realsense",
+    view_workspace=False,
+    view_traj=False,
+    view_grasps=False,
+    view_obj_bbdx=False,
+    want_depth=True,
+    want_grasps=True,
+):
+    """One render pass: RGB (+ optional depth / LoG grasps). Overlays for preview only."""
+    e = env.unwrapped
+    overlays = _add_overlays(
+        e, view_workspace, view_traj, view_grasps, view_obj_bbdx
+    )
 
     try:
         e.update_render()
         if camera_name == "render_camera":
             cam = e._render_cameras["render_camera"]
-            rgba = cam.get_images(take_picture=True)["Color"]
+            images = cam.get_images(take_picture=True)
+            cam_params = None
         else:
             e.take_picture()
             cam = e._cameras[camera_name]
-            rgba = cam.get_images()["Color"]
-        rgb = np.clip(rgba[..., :3] * 255, 0, 255).astype(np.uint8)
+            images = cam.get_images()
+            cam_params = cam.get_params()
+
+        rgb = np.clip(images["Color"][..., :3] * 255, 0, 255).astype(np.uint8)
+        depth = None
+        if want_depth and "Position" in images:
+            depth = (-images["Position"][..., 2]).astype(np.float32)  # meters
+
+        grasps_ee, grasps_scores = None, None
+        tcp_pose = None
+        if want_grasps:
+            if e.obs_mode in ["state_egopoints", "state_grasp9d"]:
+                grasps_ee, grasps_scores = e._compute_near_grasps()
+            elif e.obs_mode in ["state_egopoints_rt", "state_grasp9d_rt"]:
+                grasps_ee, grasps_scores = e._compute_near_grasps_rt()
+            tcp_pose = e.tcp.pose.to_transformation_matrix().astype(np.float32)
     finally:
         for lineset in overlays:
             e._remove_lineset(lineset)
 
-    return rgb
+    return dict(
+        rgb=rgb,
+        depth=depth,
+        grasps_ee=grasps_ee,
+        grasps_scores=grasps_scores,
+        tcp_pose=tcp_pose,
+        cam_params=cam_params,
+    )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Record headless camera-POV videos of env trajectories."
+        description="Record headless camera-POV video and/or clean training data."
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default="videos/env_trajs",
-        help="Directory to write mp4 files.",
+        help="Directory for mp4 / npz outputs.",
     )
     parser.add_argument("--mode", type=str, default="ycb_train")
     parser.add_argument("--obs-mode", type=str, default="state_egopoints")
@@ -109,9 +140,27 @@ def parse_args():
         help="Camera POV to record. hand_realsense = wrist camera.",
     )
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--no-view-workspace", action="store_true")
-    parser.add_argument("--no-view-traj", action="store_true")
-    parser.add_argument("--no-view-grasps", action="store_true")
+    parser.add_argument(
+        "--save-data",
+        action="store_true",
+        help="Save clean RGB/depth/grasps npz (no overlays). Recommended for training.",
+    )
+    parser.add_argument(
+        "--save-video",
+        action="store_true",
+        default=True,
+        help="Also write an mp4 preview (default: on).",
+    )
+    parser.add_argument(
+        "--no-save-video",
+        action="store_true",
+        help="Skip mp4 preview.",
+    )
+    parser.add_argument(
+        "--overlay",
+        action="store_true",
+        help="Draw workspace/traj/grasps on the preview video only (never in npz).",
+    )
     parser.add_argument("--view-obj-bbdx", action="store_true")
     parser.add_argument(
         "--model-id",
@@ -124,10 +173,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    view_workspace = not args.no_view_workspace
-    view_traj = not args.no_view_traj
-    view_grasps = not args.no_view_grasps
-    view_obj_bbdx = args.view_obj_bbdx
+    save_video = args.save_video and not args.no_save_video
+    # Overlays only affect preview video; training npz is always clean.
+    use_overlay = args.overlay and save_video
 
     env_cfg_file = ALGORITHM_DIR / "config/env_settings.yaml"
     with open(env_cfg_file, "r", encoding="utf-8") as fin:
@@ -169,13 +217,8 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    capture_kwargs = dict(
-        camera_name=args.camera,
-        view_workspace=view_workspace,
-        view_traj=view_traj,
-        view_grasps=view_grasps,
-        view_obj_bbdx=view_obj_bbdx,
-    )
+    want_depth = args.save_data
+    want_grasps = args.save_data
 
     for num in range(args.num_episodes):
         cur_id = int(num % len(model_ids))
@@ -183,24 +226,74 @@ def main():
         print(f"episode {num}: model_id={model_id}")
         env.reset(model_id=model_id)
 
-        frames = [capture_camera_rgb(env, **capture_kwargs)]
+        rgbs, depths, grasps_list, scores_list, tcp_list = [], [], [], [], []
+        cam_params = None
+
+        def record_step():
+            nonlocal cam_params
+            sample = capture_frame(
+                env,
+                camera_name=args.camera,
+                view_workspace=use_overlay,
+                view_traj=use_overlay,
+                view_grasps=use_overlay,
+                view_obj_bbdx=args.view_obj_bbdx and use_overlay,
+                want_depth=want_depth,
+                want_grasps=want_grasps,
+            )
+            rgbs.append(sample["rgb"])
+            if sample["depth"] is not None:
+                depths.append(sample["depth"])
+            if sample["grasps_ee"] is not None:
+                grasps_list.append(sample["grasps_ee"].astype(np.float32))
+                scores_list.append(sample["grasps_scores"].astype(np.float32))
+                tcp_list.append(sample["tcp_pose"])
+            if cam_params is None and sample["cam_params"] is not None:
+                cam_params = sample["cam_params"]
+
+        record_step()
         for step in range(args.max_steps):
             env.step(np.zeros(env.agent.action_space.sample().shape))
-            frames.append(capture_camera_rgb(env, **capture_kwargs))
+            record_step()
             print(f"episode {num}, step {step + 1}/{args.max_steps}", end="\r")
         print()
 
-        video_name = f"{num:03d}_{model_id}_{args.camera}"
-        images_to_video(
-            frames,
-            str(output_dir),
-            video_name=video_name,
-            fps=args.fps,
-            verbose=True,
-        )
+        stem = f"{num:03d}_{model_id}_{args.camera}"
+
+        if save_video:
+            images_to_video(
+                rgbs,
+                str(output_dir),
+                video_name=stem,
+                fps=args.fps,
+                verbose=True,
+            )
+
+        if args.save_data:
+            payload = dict(
+                rgb=np.stack(rgbs, axis=0),  # (T, H, W, 3) uint8, no overlays
+                model_id=np.array(model_id),
+                seed=np.array(seed, dtype=np.uint64),
+                camera=np.array(args.camera),
+                obs_mode=np.array(args.obs_mode),
+                grasp_select_mode=np.array(args.grasp_select_mode),
+            )
+            if depths:
+                payload["depth"] = np.stack(depths, axis=0)  # (T, H, W) meters
+            if grasps_list:
+                payload["grasps_ee"] = np.stack(grasps_list, axis=0)  # (T, N, 4, 4)
+                payload["grasps_scores"] = np.stack(scores_list, axis=0)  # (T, N)
+                payload["tcp_pose"] = np.stack(tcp_list, axis=0)  # (T, 4, 4) EE->world
+            if cam_params is not None:
+                for k, v in cam_params.items():
+                    payload[f"cam_{k}"] = np.asarray(v)
+
+            npz_path = output_dir / f"{stem}.npz"
+            np.savez_compressed(npz_path, **payload)
+            print(f"Saved data: {npz_path}")
 
     env.close()
-    print(f"Saved {args.num_episodes} video(s) to {output_dir.resolve()}")
+    print(f"Done. Outputs in {output_dir.resolve()}")
 
 
 if __name__ == "__main__":
