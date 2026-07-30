@@ -14,7 +14,8 @@ import numpy as np
 import torch
 import yaml
 from gap_rl import ALGORITHM_DIR
-from gap_rl.utils.visualization.misc import images_to_video
+from gap_rl.envs.pick_single import PickSingleYCBEnv  # noqa: F401  # registers envs
+from gap_rl.utils.visualization.cv2_utils import images_to_video
 
 
 def setup_seed(seed=1029):
