@@ -38,7 +38,16 @@ def images_to_video(
         os.makedirs(output_dir)
     video_name = video_name.replace(" ", "_").replace("\n", "_") + ".mp4"
     output_path = os.path.join(output_dir, video_name)
-    writer = imageio.get_writer(output_path, fps=fps, quality=quality, **kwargs)
+    # Force FFMPEG: newer imageio can pick tifffile for .mp4 and reject fps=
+    writer = imageio.get_writer(
+        output_path,
+        format="FFMPEG",
+        mode="I",
+        fps=fps,
+        quality=quality,
+        codec="libx264",
+        **kwargs,
+    )
     if verbose:
         print(f"Video created: {output_path}")
         images_iter = tqdm.tqdm(images)
