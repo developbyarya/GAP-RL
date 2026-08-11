@@ -75,6 +75,11 @@ def gen_grasps(env, lgNet):
     return scene_points_ee, obj_points_ee, pred_gg_ee, draw_gg_world
 
 
+class NoGraspRenderWrapper(gym.Wrapper):
+    def render(self, mode="human", **kwargs):
+        return self.env.render(mode, view_workspace=False, view_traj=False, view_grasps=False, **kwargs)
+
+
 if __name__ == "__main__":
     np.set_printoptions(suppress=True, precision=4)
     device = "cuda:0"
@@ -173,6 +178,7 @@ if __name__ == "__main__":
                     "add_noise": args.add_noise
                 }
                 env.set_rt_paras(**para)
+                env = NoGraspRenderWrapper(env)
                 record_env = RecordEpisode(
                     env=env,
                     output_dir='./',
