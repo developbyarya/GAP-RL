@@ -24,4 +24,5 @@ sim_freq: 150
 control_freq: 5
 goal_aux: True
 share_feat: False
+n_stack: 4
 grasp_select_mode: near4  # angle_filter, nearest, random, near4, near4_filter

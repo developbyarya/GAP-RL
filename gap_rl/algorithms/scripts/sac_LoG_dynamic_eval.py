@@ -26,6 +26,7 @@ from gap_rl.utils.o3d_utils import draw_o3d_geometries
 from gap_rl.localgrasp.LoG import lg_parse, LgNet, GraspGroup
 
 from stable_baselines3 import SAC
+from custom_sac import CustomSAC, FrameStackObsWrapper, default_stack_keys
 
 import pickle
 
@@ -121,6 +122,7 @@ if __name__ == "__main__":
 
         filter_angle = np.pi / 3 if "filter" in cfg['grasp_select_mode'] else np.pi
         is_goal_aux = cfg.get('goal_aux', False)
+        n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
 
         for eval_dataset in args.eval_datasets:
             if args.cam_mode == 'hand_realsense':
@@ -160,9 +162,12 @@ if __name__ == "__main__":
                     control_freq=cfg['control_freq'],
                     device=cfg["device"],
                 )
-                # if args.n_stack > 1:
-                #     env = DictObservationStack(env, num_stack=args.n_stack)
                 env = NormalizeBoxActionWrapper(env)
+                orig_obs_space = env.observation_space
+                stack_keys = default_stack_keys(orig_obs_space)
+                if is_goal_aux:
+                    env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
+                    print(f"FrameStack: n_stack={n_stack}, stack_keys={stack_keys}")
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
@@ -181,7 +186,8 @@ if __name__ == "__main__":
                 )
                 # Note: load RL model, it will change record._main_seed
                 model_path = f"{log_path}/rl_model_2000000_steps"
-                rl_model = SAC.load(model_path,
+                load_cls = CustomSAC if is_goal_aux else SAC
+                rl_model = load_cls.load(model_path,
                                     env=record_env,
                                     print_system_info=True
                                     )
