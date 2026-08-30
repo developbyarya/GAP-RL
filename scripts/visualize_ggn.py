@@ -69,26 +69,59 @@ def generate_gaussian_grasps_overlay(e):
     lineset = e._scene.renderer_scene._internal_scene.add_line_set(traj_linesets)
     return lineset, gripper_pts_init, grasps_mat_ee
 
-def overlay_ggn_feature(img, feature, step):
-    img = cv2.resize(img, (512, 512))
+def overlay_ggn_feature(img, feature, step, obs):
+    # Upscale the camera image to a larger size
+    img = cv2.resize(img, (800, 800))
     h, w, _ = img.shape
     
-    fig, ax = plt.subplots(figsize=(4, 1.5), dpi=100)
+    # Create a side panel to visualize the RL State
+    panel_w = 450
+    panel = np.ones((h, panel_w, 3), dtype=np.uint8) * 240 # Light gray background
+    
+    y_offset = 50
+    def put_text(text, scale=0.55, color=(0,0,0), thickness=1):
+        nonlocal y_offset
+        # Split text if it has newlines
+        for line in str(text).split('\n'):
+            cv2.putText(panel, line, (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness)
+            y_offset += 25
+            
+    put_text(f"Simulation Step: {step}", scale=0.7, color=(150, 0, 0), thickness=2)
+    y_offset += 20
+    put_text("--- RL STATE ---", scale=0.6, color=(50, 50, 50), thickness=2)
+    
+    if "gripper_pos" in obs:
+        put_text(f"Gripper Pos: {obs['gripper_pos'].round(3)}")
+    if "tcp_pose" in obs:
+        put_text(f"TCP Pose (xyz, rot):")
+        put_text(f"{obs['tcp_pose'].round(3)}")
+    if "action" in obs:
+        put_text(f"Last Action:")
+        put_text(f"{obs['action'].round(3)}")
+    if "grasp_exist" in obs:
+        put_text(f"Grasp Exist Flags: {obs['grasp_exist'].round(2)}")
+    if "origin_gripper_pts" in obs:
+        put_text(f"Local Grasp Points: {obs['origin_gripper_pts'].shape}")
+    
+    # Generate the Matplotlib bar plot for GGN Feature
+    fig, ax = plt.subplots(figsize=(4.5, 2.5), dpi=100)
     ax.bar(range(len(feature)), feature, color='b')
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_title("GraspGroupNet Feature", fontsize=10)
+    ax.set_title("GraspGroupNet Feature (O_grasp)", fontsize=10)
     plt.tight_layout()
     
     fig.canvas.draw()
     plot_img = np.asarray(fig.canvas.buffer_rgba())[..., :3]  # RGBA to RGB
     plt.close(fig)
     
+    # Place plot at the bottom of the panel
     ph, pw, _ = plot_img.shape
-    img[-ph:, w-pw:] = plot_img
+    panel[-ph:, (panel_w - pw) // 2 : (panel_w - pw) // 2 + pw] = plot_img
     
-    cv2.putText(img, f"Step: {step}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    return img
+    # Combine the camera image and the state panel
+    combined = np.hstack([img, panel])
+    return combined
 
 def main():
     setup_seed(1029)
@@ -128,10 +161,10 @@ def main():
     )
     gpag.eval()
     
-    env.reset(seed=1029, model_id=model_ids[0])
+    obs = env.reset(seed=1029, model_id=model_ids[0])
     
     rgbs = []
-    max_steps = 100
+    max_steps = 200  # Extended to see more dynamic movement
     for step in range(max_steps):
         e = env.unwrapped
         
@@ -166,10 +199,19 @@ def main():
             else:
                 feat_np = np.zeros(128)
                 
-        rgb = overlay_ggn_feature(rgb, feat_np, step)
+        # Create full overlay with the latest observation state
+        rgb = overlay_ggn_feature(rgb, feat_np, step, obs)
         rgbs.append(rgb)
         
-        env.step(np.zeros(env.action_space.shape))
+        # Smooth random walk to explore the state dynamically
+        action = np.zeros(env.action_space.shape)
+        action[:3] = [0.05 * np.sin(step/10), 0.05 * np.cos(step/10), 0.02 * np.sin(step/5)]
+        action[3:6] = [0, 0, 0.1 * np.sin(step/10)]
+        
+        # For gym < 0.26 environments, step returns 4 values
+        step_result = env.step(action)
+        obs = step_result[0]
+        
         print(f"Step {step+1}/{max_steps}", end="\r")
         
     print("\nSaving video...")
