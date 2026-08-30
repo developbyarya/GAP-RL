@@ -70,6 +70,7 @@ def generate_gaussian_grasps_overlay(e):
     return lineset, gripper_pts_init, grasps_mat_ee
 
 def overlay_ggn_feature(img, feature, step):
+    img = cv2.resize(img, (512, 512))
     h, w, _ = img.shape
     
     fig, ax = plt.subplots(figsize=(4, 1.5), dpi=100)
@@ -80,8 +81,7 @@ def overlay_ggn_feature(img, feature, step):
     plt.tight_layout()
     
     fig.canvas.draw()
-    plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plot_img = np.asarray(fig.canvas.buffer_rgba())[..., :3]  # RGBA to RGB
     plt.close(fig)
     
     ph, pw, _ = plot_img.shape
