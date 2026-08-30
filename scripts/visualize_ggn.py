@@ -209,9 +209,10 @@ def main():
         action[3:6] = [0, 0, 0.1 * np.sin(step/10)]
         
         # For gym < 0.26 environments, step returns 4 values
-        step_result = env.step(action)
-        obs = step_result[0]
-        
+        obs, reward, done, info = env.step(action)
+        if done:
+            obs = env.reset(seed=1029, model_id=model_ids[0])
+            
         print(f"Step {step+1}/{max_steps}", end="\r")
         
     print("\nSaving video...")
