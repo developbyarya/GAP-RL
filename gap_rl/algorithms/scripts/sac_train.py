@@ -28,6 +28,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from reward_component_logger import RewardComponentCallback
 
 
 extractor_aliases: Dict[str, Type[BaseFeaturesExtractor]] = {
@@ -187,9 +188,10 @@ if __name__ == "__main__":
         )
     # Set new logger
     model.set_logger(new_logger)
+    reward_cb = RewardComponentCallback(verbose=1)
     model.learn(
         total_timesteps=5_000_000,
-        callback=[checkpoint_callback],
+        callback=[checkpoint_callback, reward_cb],
     )
     # model.save_replay_buffer(log_dir + "/sac_replay_buffer")
 
