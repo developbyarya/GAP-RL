@@ -166,6 +166,9 @@ class PickSingleEnv(BaseEnv):
 
         self._cache_info = {}
         self.device = torch.device(kwargs.pop("device", "cuda:0"))
+        # Configurable reward weight for info_exist_reward (Step 4 ablation).
+        # Default 3.0 preserves existing behavior.
+        self.info_exist_weight = float(kwargs.pop("info_exist_weight", 3.0))
 
         self._check_assets()
         super().__init__(**kwargs)
@@ -1173,7 +1176,7 @@ class PickSingleEnv(BaseEnv):
         is_robot_static, is_obj_grasp, is_obj_static, is_obj_lift = info["evaluate_info"]
         is_success = info["is_success"]
 
-        info_exist_reward = 3 if info["is_info_exist"] else 0
+        info_exist_reward = self.info_exist_weight if info["is_info_exist"] else 0
 
         if is_success:
             reward = 15.0

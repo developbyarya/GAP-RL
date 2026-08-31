@@ -33,6 +33,7 @@ def sb3_make_env(
         n_stack=0,
         norm_action=True,
         seed=0,
+        **extra_env_kwargs,
 ):
     env = gym.make(
         env_id,
@@ -56,6 +57,7 @@ def sb3_make_env(
         sim_freq=sim_freq,
         control_freq=control_freq,
         device=device,
+        **extra_env_kwargs,
     )
     if n_stack:
         env = DictObservationStack(env, num_stack=n_stack)
@@ -90,7 +92,8 @@ def sb3_make_multienv(
         stack_obs=False,
         norm_action=True,
         rank=0,
-        seed=0
+        seed=0,
+        **extra_env_kwargs,
 ):
     def _init():
         env = gym.make(
@@ -115,6 +118,7 @@ def sb3_make_multienv(
             sim_freq=sim_freq,
             control_freq=control_freq,
             device=device,
+            **extra_env_kwargs,
         )
         # Important: use a different seed for each environment
         if stack_obs:
