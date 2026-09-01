@@ -26,7 +26,6 @@ from gap_rl.utils.o3d_utils import draw_o3d_geometries
 from gap_rl.localgrasp.LoG import lg_parse, LgNet, GraspGroup
 
 from stable_baselines3 import SAC
-from custom_sac import CustomSAC, FrameStackObsWrapper, default_stack_keys
 
 import pickle
 
@@ -75,11 +74,6 @@ def gen_grasps(env, lgNet):
     return scene_points_ee, obj_points_ee, pred_gg_ee, draw_gg_world
 
 
-class NoGraspRenderWrapper(gym.Wrapper):
-    def render(self, mode="human", **kwargs):
-        return self.env.render(mode, view_workspace=False, view_traj=False, view_grasps=False, **kwargs)
-
-
 if __name__ == "__main__":
     np.set_printoptions(suppress=True, precision=4)
     device = "cuda:0"
@@ -93,7 +87,9 @@ if __name__ == "__main__":
     parser.add_argument("--eval-datasets", type=str, nargs='+', required=True)  # "ycb_train", "ycb_eval", "graspnet_eval", "acronym_eval"
     parser.add_argument("--gen-traj-modes", type=str, nargs='+', required=True)  # line circle circular bezier2d random2d; random3d bezier3d
     parser.add_argument("--obs-mode", type=str, default="state_grasp9d_rt")  # state_grasp9d_rt, state_egopoints_rt
-    parser.add_argument("--timestamp", type=str)
+    parser.add_argument("--timestamp", type=str, default=None)
+    parser.add_argument("--run-dir", type=str, default=None, help="Exact path to the run directory (e.g. runs/reward_ablation_...)")
+    parser.add_argument("--model-name", type=str, default="rl_model_2000000_steps", help="Name of the model file to load (without .zip)")
     parser.add_argument("--seeds", type=int, nargs='+', required=True)
 
     parser.add_argument("--vis-grasp", action='store_true')
@@ -116,18 +112,28 @@ if __name__ == "__main__":
         print(args.eval_datasets, args.gen_traj_modes)
         noise_str = "noise" if args.add_noise else ""
 
-        # log_path = "20240307_174224_sac4_state_egopoints_pd_ee_delta_pose_euler_YCB12_40_bezier2d_vary_nearest"
-        log_path = glob.glob(f"{args.timestamp}*")[0]
-        config_file = ALGORITHM_DIR / f"scripts/{log_path}/config.yaml"
+        if args.run_dir is not None:
+            log_dir = os.path.abspath(args.run_dir)
+            log_path = os.path.basename(log_dir)
+        elif args.timestamp is not None:
+            log_path = glob.glob(f"{args.timestamp}*")[0]
+            log_dir = str(ALGORITHM_DIR / f"scripts/{log_path}")
+        else:
+            raise ValueError("Must provide either --timestamp or --run-dir")
+
+        config_file = os.path.join(log_dir, "config.yaml")
+        if not os.path.exists(config_file):
+            config_file = os.path.join(log_dir, "ablation_config.yaml")
+            
         with open(config_file, 'r', encoding='utf-8') as fin:
             cfg = yaml.load(fin, Loader=yaml.FullLoader)
+            
         env_cfg_file = ALGORITHM_DIR / f"config/env_settings.yaml"
         with open(env_cfg_file, 'r', encoding='utf-8') as fin:
             env_cfg = yaml.load(fin, Loader=yaml.FullLoader)
 
         filter_angle = np.pi / 3 if "filter" in cfg['grasp_select_mode'] else np.pi
         is_goal_aux = cfg.get('goal_aux', False)
-        n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
 
         for eval_dataset in args.eval_datasets:
             if args.cam_mode == 'hand_realsense':
@@ -167,18 +173,14 @@ if __name__ == "__main__":
                     control_freq=cfg['control_freq'],
                     device=cfg["device"],
                 )
+                # if args.n_stack > 1:
+                #     env = DictObservationStack(env, num_stack=args.n_stack)
                 env = NormalizeBoxActionWrapper(env)
-                orig_obs_space = env.observation_space
-                stack_keys = default_stack_keys(orig_obs_space)
-                if is_goal_aux:
-                    env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
-                    print(f"FrameStack: n_stack={n_stack}, stack_keys={stack_keys}")
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
                 }
                 env.set_rt_paras(**para)
-                env = NoGraspRenderWrapper(env)
                 record_env = RecordEpisode(
                     env=env,
                     output_dir='./',
@@ -191,9 +193,13 @@ if __name__ == "__main__":
                     clean_on_close=True,
                 )
                 # Note: load RL model, it will change record._main_seed
-                model_path = f"{log_path}/rl_model_2000000_steps"
-                load_cls = CustomSAC if is_goal_aux else SAC
-                rl_model = load_cls.load(model_path,
+                model_path = os.path.join(log_dir, args.model_name)
+                if not os.path.exists(model_path + ".zip"):
+                    # Fallback if specific steps model doesn't exist but final_model exists
+                    if os.path.exists(os.path.join(log_dir, "final_model.zip")):
+                        model_path = os.path.join(log_dir, "final_model")
+                        
+                rl_model = SAC.load(model_path,
                                     env=record_env,
                                     print_system_info=True
                                     )

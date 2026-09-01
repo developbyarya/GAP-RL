@@ -16,6 +16,7 @@ setup(
     packages=find_packages(exclude=["img", "img.*", "assets", "assets.*"]),
     python_requires=">=3.8",
     setup_requires=["setuptools>=62.3.0"],
+    packages=find_packages(include=["gap_rl", "gap_rl.*"]),
     # install_requires=read_requirements(),
     package_data={
         "gap_rl": [
