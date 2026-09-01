@@ -1,22 +1,22 @@
 # GAP-RL working requirements -- CUDA 11.7.1 / Ubuntu 20.04 (nvidia/cuda:11.7.1-devel-ubuntu20.04), Python 3.9
 # Build-tool pins (torch 1.13 still imports pkg_resources from setuptools):
-pip<24.1
-setuptools==65.5.0
-wheel<0.40.0
+# pip<24.1
+# setuptools==65.5.0
+# wheel<0.40.0
 
 # Torch must match the PointNetOps / pytorch3d CUDA build (cu117):
---extra-index-url https://download.pytorch.org/whl/cu117
+# --extra-index-url https://download.pytorch.org/whl/cu117
 --find-links https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu117_pyt1131/download.html
 
-torch==1.13.1+cu117
-torchvision==0.14.1+cu117
-pytorch3d==0.7.3
+# torch==1.13.1+cu117
+# torchvision==0.14.1+cu117
+# pytorch3d==0.7.3
 
 # PointNetOps (PointNet++) -- build with nvcc + ninja; needs the devel image and
 #   export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9+PTX"
 #   export FORCE_CUDA=1
 ninja
-pointnet2_ops @ git+https://github.com/ma-xu/pointMLP-pytorch.git#subdirectory=pointnet2_ops_lib
+# pointnet2_ops @ git+https://github.com/ma-xu/pointMLP-pytorch.git#subdirectory=pointnet2_ops_lib
 
 absl-py==2.3.1
 addict==2.4.0
