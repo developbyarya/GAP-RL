@@ -40,16 +40,25 @@ class RewardComponentCallback(BaseCallback):
         super().__init__(verbose)
         self.window_size = window_size
         self._buffers = {k: [] for k in self.COMPONENT_KEYS}
+        self._success_once_buffer = []
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
-        for info in infos:
+        dones = self.locals.get("dones", [])
+        
+        for i, info in enumerate(infos):
             for key in self.COMPONENT_KEYS:
                 if key in info:
                     self._buffers[key].append(info[key])
                     # Keep only the last `window_size` values
                     if len(self._buffers[key]) > self.window_size:
                         self._buffers[key] = self._buffers[key][-self.window_size:]
+                        
+            # Track episode-level success_once when the episode ends
+            if i < len(dones) and dones[i] and "is_success_once" in info:
+                self._success_once_buffer.append(info["is_success_once"])
+                if len(self._success_once_buffer) > self.window_size:
+                    self._success_once_buffer = self._success_once_buffer[-self.window_size:]
 
         # Log rolling averages every time the model logs (roughly every
         # `train_freq` steps, controlled by SB3 internally)
@@ -57,5 +66,8 @@ class RewardComponentCallback(BaseCallback):
             if self._buffers[key]:
                 mean_val = np.mean(self._buffers[key])
                 self.logger.record(f"reward/{key}", mean_val)
+                
+        if len(self._success_once_buffer) > 0:
+            self.logger.record("rollout/success_rate_once", np.mean(self._success_once_buffer))
 
         return True
