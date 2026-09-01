@@ -238,3 +238,70 @@ tensorboard --logdir runs/ --port 6007
   suggesting the exploration collapse has a different root cause (e.g., gSDE
   `log_std_init=-3.67` starting too low, aux loss weights overwhelming the
   RL gradient, or the LSTM architecture itself).
+
+## Step 4b: `log_std_init` Ablation
+
+### 1. Carryover Baseline
+This run extends the already-validated `info_exist_weight=0.3` to a 1,000,000 timestep budget, serving as the baseline to see if success rate begins to rise independently of exploration variance changes.
+
+```bash
+cd /root/GAP-RL/gap_rl/algorithms/scripts && \
+python ../../scripts/train_reward_ablation.py \
+    --config-name egopoints_ur85_bezier2d_goalaux \
+    --info-exist-weight 0.3 \
+    --log-std-init -3.67 \
+    --total-timesteps 1000000 \
+    --seed 1029
+```
+
+### 2. Test Run (Increased Initial Exploration)
+This run raises the initial gSDE exploration standard deviation. 
+We selected `-1.5` (std ≈ 0.22) instead of a drastic jump to `0.0` (std ≈ 1.0) because jumping straight to 1.0 could inject so much noise into the action space that the mean becomes ungovernable before any meaningful reward signal can be found. A moderate increase to 0.22 (roughly 9x larger than the original 0.025) allows us to confirm the directional impact without risking immediate divergence.
+
+```bash
+cd /root/GAP-RL/gap_rl/algorithms/scripts && \
+python ../../scripts/train_reward_ablation.py \
+    --config-name egopoints_ur85_bezier2d_goalaux \
+    --info-exist-weight 0.3 \
+    --log-std-init -1.5 \
+    --total-timesteps 1000000 \
+    --seed 1029
+```
+
+## Step 5: Comparison and Decision Criteria
+
+When the 1M-step runs conclude, compare their TensorBoard logs to make the final decision:
+
+| Metric | What to look for | Supports raising `log_std_init` |
+|---|---|---|
+| `train/std` (whole run) | Does it stay meaningfully higher than 0.025–0.04 in the test run, or decay back down to the same range? | Yes if it stays elevated |
+| `rollout/success_rate` (full 1M steps) | Does the test run reach nonzero success meaningfully earlier or more often than the carryover baseline? | Yes if test > baseline |
+| `reward/grasp_reward` frequency (nonzero windows) | Does the test run show an even higher rate than the 0.3-weight-only ablation did? | Yes if test rate is higher still |
+| `train/actor_loss` / `train/critic_loss` | Any signs of instability (diverging/NaN) from the larger noise? | No — regress if unstable |
+
+**Decision criteria:** 
+- **Adopt the higher `log_std_init` (-1.5)** if the success rate or grasp-contact frequency clearly improves over the carryover baseline without inducing actor/critic instability.
+- **Keep `-3.67`** if there is no improvement, or if training destabilizes. In that case, the next logical targets for investigation are the `sde_sample_freq` (currently -1, meaning noise is held constant for the entire episode) or the auxiliary loss weights (`aux_weight` starts at 100 and may be overwhelming the RL gradients).
+
+---
+
+## Step 6: `rollout/success_rate` Latching Diagnosis
+
+### 1. Code Tracing Findings
+I traced `is_success` through the environment and SB3's logging infrastructure:
+- `pick_single.py`'s `evaluate()` computes `is_success = int(is_robot_static * is_obj_grasp * is_obj_static * is_obj_lift)` completely **statelessly** each step. It does not accumulate over the episode.
+- The wrapper chain uses a time limit of 100 steps. `done=True` is triggered exactly on step 100.
+- SB3's `VecMonitor` and `BaseAlgorithm.collect_rollouts()` extract `info["is_success"]` **strictly at the step where `done=True`**.
+- **Conclusion**: `rollout/success_rate` exactly means "were all 4 success conditions perfectly satisfied on step 100." If the agent grasped and lifted the object at step 50 but dropped it at step 99, `rollout/success_rate` logs a 0. This confirms your hypothesis that the metric is extremely harsh and timing-dependent.
+
+### 2. The New Metric: `rollout/success_rate_once`
+I have added a new, additive metric to help diagnose this without breaking comparability of existing runs:
+- Added `self._success_once` in `pick_single.py`, which initializes to `False` on `reset()` and latches to `True` if `is_success` is ever 1 during the episode.
+- Included `is_success_once` in the `info` dict.
+- Updated `RewardComponentCallback` to catch `info["is_success_once"]` at `done=True` and log it as `rollout/success_rate_once`.
+
+### 3. What to Expect in the Logs
+- **Difference in Meaning**: `rollout/success_rate` (existing) measures terminal-step success. `rollout/success_rate_once` (new) measures whether the agent *ever* succeeded during the episode, even briefly.
+- **If they diverge** (e.g. `success_rate_once` climbs to 20% while `success_rate` stays at 1%): This means the agent has learned to solve the task, but doesn't know how to *hold* the object until step 100. It proves the terminal-step framing is artificially suppressing the reported success rate.
+- **If they stay close together** (e.g. both remain near zero): This means the agent genuinely isn't achieving all 4 conditions at any point in the episode. The spikiness in the logs is just statistical noise from extremely rare successful episodes, pointing back to exploration/training-duration issues.
+- **⚠️ Important Warning**: `rollout/success_rate_once` is purely a diagnostic tool. It is **not** directly comparable to the baseline success rates reported in the GAP-RL paper (which use the strict terminal-step definition). Do not use this new metric for headline reporting.

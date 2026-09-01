@@ -304,6 +304,7 @@ class PickSingleEnv(BaseEnv):
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
         self._cache_info.clear()
+        self._success_once = False
         self.dynamic_paras = None
         self.grasp_ids = None
         self.grasps_mat_ee = np.zeros((self.num_grasps, 4, 4))
@@ -1072,6 +1073,10 @@ class PickSingleEnv(BaseEnv):
         is_robot_static, is_obj_grasp, is_obj_static, is_obj_lift = self.evaluate_success()
         is_success = int(is_robot_static * is_obj_grasp * is_obj_static * is_obj_lift)
 
+        # Track if success was achieved at any point during this episode
+        if is_success:
+            self._success_once = True
+
         if self.obs_mode == "state_objpoints_rt":
             is_info_exist = np.any(self._get_obj_exist_mask())
         elif self.obs_mode in ["state_egopoints", "state_grasp9d"]:
@@ -1087,6 +1092,7 @@ class PickSingleEnv(BaseEnv):
         ).astype(np.int32)
         return dict(
             is_success=is_success,
+            is_success_once=int(self._success_once),
             is_info_exist=is_info_exist,
             evaluate_info=evaluate_info,
         )
