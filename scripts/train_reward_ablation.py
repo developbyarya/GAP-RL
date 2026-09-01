@@ -73,6 +73,8 @@ def main():
     parser.add_argument("--config-name", type=str, default="egopoints_ur85_bezier2d_goalaux")
     parser.add_argument("--info-exist-weight", type=float, default=3.0,
                         help="Weight for info_exist_reward (default: 3.0 = original)")
+    parser.add_argument("--log-std-init", type=float, default=-3.67,
+                        help="Initial value for gSDE log_std (default: -3.67)")
     parser.add_argument("--total-timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed (default: random)")
@@ -114,6 +116,7 @@ def main():
 
     # Save ablation config for reproducibility
     ablation_cfg = {**cfg, "info_exist_weight": args.info_exist_weight,
+                    "log_std_init": args.log_std_init,
                     "total_timesteps": args.total_timesteps, "seed": seed}
     with open(os.path.join(log_dir, "ablation_config.yaml"), "w") as f:
         yaml.dump(ablation_cfg, f)
@@ -185,7 +188,7 @@ def main():
             learning_starts=800,
             use_sde=True,
             policy_kwargs=dict(
-                log_std_init=-3.67,
+                log_std_init=args.log_std_init,
                 net_arch=[256, 256],
                 features_extractor_class=rl_feat_extract_class,
                 features_extractor_kwargs=None,
@@ -213,7 +216,7 @@ def main():
             learning_starts=800,
             use_sde=True,
             policy_kwargs=dict(
-                log_std_init=-3.67,
+                log_std_init=args.log_std_init,
                 net_arch=[256, 256],
                 features_extractor_class=rl_feat_extract_class,
                 features_extractor_kwargs=None,
