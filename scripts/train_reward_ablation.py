@@ -229,6 +229,14 @@ def main():
             verbose=1,
         )
 
+    # GUARANTEED FIX: Manually override log_std to bypass any signature routing issues
+    if getattr(model, "use_sde", False) and hasattr(model.policy, "actor"):
+        with torch.no_grad():
+            model.policy.actor.log_std.fill_(args.log_std_init)
+            
+    # Unconditional log statement as requested
+    print(f"DEBUG: Actor log_std starts at {model.policy.actor.log_std.mean().item()}")
+
     model.set_logger(new_logger)
     print(f"\n{'='*60}")
     print(f"Starting ablation training")
