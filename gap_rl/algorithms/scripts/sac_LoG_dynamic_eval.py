@@ -103,6 +103,14 @@ if __name__ == "__main__":
     # setup LoG
     parser = lg_parse(parser)
     args = parser.parse_args()
+    
+    # Fix checkpoint path when running from outside the localgrasp directory
+    if hasattr(args, "checkpoint_path") and not os.path.exists(args.checkpoint_path):
+        from gap_rl import LOCALGRASP_DIR
+        fixed_path = str(LOCALGRASP_DIR / os.path.basename(args.checkpoint_path))
+        if os.path.exists(fixed_path):
+            args.checkpoint_path = fixed_path
+            
     # args.vis = args.vis_grasp
 
     print("experiment random seeds: ", args.seeds)
