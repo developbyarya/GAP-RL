@@ -305,3 +305,59 @@ I have added a new, additive metric to help diagnose this without breaking compa
 - **If they diverge** (e.g. `success_rate_once` climbs to 20% while `success_rate` stays at 1%): This means the agent has learned to solve the task, but doesn't know how to *hold* the object until step 100. It proves the terminal-step framing is artificially suppressing the reported success rate.
 - **If they stay close together** (e.g. both remain near zero): This means the agent genuinely isn't achieving all 4 conditions at any point in the episode. The spikiness in the logs is just statistical noise from extremely rare successful episodes, pointing back to exploration/training-duration issues.
 - **⚠️ Important Warning**: `rollout/success_rate_once` is purely a diagnostic tool. It is **not** directly comparable to the baseline success rates reported in the GAP-RL paper (which use the strict terminal-step definition). Do not use this new metric for headline reporting.
+
+---
+
+## Step 7: Fixing the `log_std_init` Wiring Bug
+
+### 1. Diagnosis of the Parsing Failure
+The previous `--log-std-init -1.5` run resulted in the actor receiving the default `-3.67` value. The theoretical wiring across `CustomSACPolicy`, `SACPolicy`, `CustomActor`, and `Actor` is positionally sound in SB3 (v1.7.0/v1.8.0), and `args.log_std_init` is parsed correctly by `argparse`. 
+
+The most likely failure point lies in the brittle hand-off of `policy_kwargs` deep within SB3's internal dictionary mapping during actor construction on the remote environment. When a parameter gets silently dropped in the keyword unpacking, `Actor.__init__` falls back to its default value (-3). `sac_train.py` circumvented this by hard-coding it directly, but dynamic CLI injection failed.
+
+### 2. The Guaranteed Fix
+To definitively bypass any signature routing mismatches on the remote machine's SB3 version, we have explicitly injected the value into the actor *after* the model is fully constructed but *before* training begins:
+
+```python
+# GUARANTEED FIX: Manually override log_std to bypass any signature routing issues
+if getattr(model, "use_sde", False) and hasattr(model.policy, "actor"):
+    with torch.no_grad():
+        model.policy.actor.log_std.fill_(args.log_std_init)
+```
+
+Additionally, an unconditional debug log is now printed upon model initialization to confirm the exact standard deviation scalar applied:
+`DEBUG: Actor log_std starts at <value>`
+
+### 3. Remote Verification Commands
+
+**Quick Verification Run** (To confirm the print statement logs `0.223` and training starts):
+```bash
+cd /root/GAP-RL/gap_rl/algorithms/scripts && \
+python ../../scripts/train_reward_ablation.py \
+    --config-name egopoints_ur85_bezier2d_goalaux \
+    --info-exist-weight 0.3 \
+    --log-std-init -1.5 \
+    --total-timesteps 20000 \
+    --seed 1029
+```
+
+**Combined Re-Run** (The real test combining the reward fix and the exploration fix):
+```bash
+cd /root/GAP-RL/gap_rl/algorithms/scripts && \
+python ../../scripts/train_reward_ablation.py \
+    --config-name egopoints_ur85_bezier2d_goalaux \
+    --info-exist-weight 0.3 \
+    --log-std-init -1.5 \
+    --total-timesteps 2000000 \
+    --seed 1029
+```
+
+### 4. Evaluation Criteria Against the 1.84M Baseline
+
+This combined run will be compared against the existing 1.84M-step `info_exist_weight=0.3` baseline that reached 5–18% success.
+
+| Metric | What to look for | Decision |
+|---|---|---|
+| `train/std` | Does it remain functionally elevated above the baseline's `~0.025` floor during the early phase of learning? | Validation that the fix applied to training dynamics. |
+| `rollout/success_rate` | Does the agent reach the 18% peak faster, or break through it to higher rates? | **Adopt**: Combine both fixes permanently. |
+| `train/actor_loss` | Are gradients diverging or logging `NaN` due to excessive initial action noise? | **Reject**: Keep `log_std_init=-3.67` and test `aux_weight` scaling next. |
