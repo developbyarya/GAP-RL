@@ -181,9 +181,13 @@ if __name__ == "__main__":
                     control_freq=cfg['control_freq'],
                     device=cfg["device"],
                 )
-                # if args.n_stack > 1:
-                #     env = DictObservationStack(env, num_stack=args.n_stack)
                 env = NormalizeBoxActionWrapper(env)
+                if is_goal_aux:
+                    n_stack = cfg.get("n_stack", 4)
+                    if n_stack > 1:
+                        from custom_sac import FrameStackObsWrapper, default_stack_keys
+                        stack_keys = default_stack_keys(env.observation_space)
+                        env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
