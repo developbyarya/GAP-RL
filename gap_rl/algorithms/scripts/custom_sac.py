@@ -622,6 +622,7 @@ class CustomSAC(SAC):
             ent_coef=ent_coef,
             target_update_interval=target_update_interval,
             target_entropy=target_entropy,
+            _init_setup_model=_init_setup_model,
         )
 
     def _setup_model(self) -> None:
