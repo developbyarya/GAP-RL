@@ -224,7 +224,7 @@ if __name__ == "__main__":
                     gen_traj_mode=gen_traj_mode,
                     vary_speed=cfg['vary_speed'],
                     grasp_select_mode=cfg['grasp_select_mode'],
-                    obs_mode=args.obs_mode,
+                    obs_mode=cfg.get('obs_mode', args.obs_mode),
                     control_mode=cfg['control_mode'],
                     reward_mode=cfg['reward_mode'],
                     sim_freq=cfg['sim_freq'],
@@ -267,10 +267,32 @@ if __name__ == "__main__":
                 else:
                     load_cls = SAC
                     
-                rl_model = load_cls.load(model_path,
-                                    env=record_env,
-                                    print_system_info=True
-                                    )
+                print("=== Observation Space Before Loading ===")
+                for obs_key, box_space in record_env.observation_space.spaces.items():
+                    print(f"  {obs_key}: {box_space.shape}")
+                print("========================================")
+                    
+                try:
+                    rl_model = load_cls.load(model_path,
+                                        env=record_env,
+                                        print_system_info=False
+                                        )
+                except ValueError as e:
+                    import zipfile, json, cloudpickle, base64
+                    with zipfile.ZipFile(model_path + ".zip" if not model_path.endswith('.zip') else model_path, "r") as archive:
+                        data_json = archive.read("data").decode("utf-8")
+                        data = json.loads(data_json)
+                        obs_space_b64 = data["observation_space"]
+                    obs_space = cloudpickle.loads(base64.b64decode(obs_space_b64))
+                    print("\n!!! OBSERVATION SPACE MISMATCH !!!")
+                    print("EVAL SCRIPT EXPECTS (env.observation_space):")
+                    for k, v in record_env.observation_space.spaces.items():
+                        print(f"  {k}: {v.shape}")
+                    print("\nSAVED MODEL EXPECTS (data['observation_space']):")
+                    for k, v in obs_space.spaces.items():
+                        print(f"  {k}: {v.shape}")
+                    print("!!! ================================ !!!\n")
+                    raise
 
                 for obs_key, box_space in record_env.observation_space.items():
                     print(f"{obs_key}: {box_space.shape} ")
