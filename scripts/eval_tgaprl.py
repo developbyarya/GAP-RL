@@ -277,6 +277,10 @@ if __name__ == "__main__":
                                         env=record_env,
                                         print_system_info=False
                                         )
+                    print("\n[VRAM DIAGNOSTIC] After model load:")
+                    os.system("nvidia-smi | grep MiB")
+                    import torch
+                    torch.cuda.empty_cache()
                 except ValueError as e:
                     import zipfile, json, cloudpickle, base64
                     with zipfile.ZipFile(model_path + ".zip" if not model_path.endswith('.zip') else model_path, "r") as archive:
@@ -347,8 +351,16 @@ if __name__ == "__main__":
                             # print("----- init render time: ", time.time() - t)
                             t = time.time()
 
+                            if num == 0:
+                                print("\n[VRAM DIAGNOSTIC] Before gen_grasps:")
+                                os.system("nvidia-smi | grep MiB")
+
                             ## generate grasps in EE frame
                             scene_points_ee, obj_points_ee, pred_gg_ee, draw_gg_world = gen_grasps(record_env, lgNet)
+                            
+                            if num == 0:
+                                print("\n[VRAM DIAGNOSTIC] After gen_grasps:")
+                                os.system("nvidia-smi | grep MiB")
 
                             if obj_points_ee.shape[0] == 0 or pred_gg_ee.size == 0:
                                 # grasps_ee = np.eye(4)[None]  # (1, 4, 4)
