@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "gap_rl", "algorithms", "scripts")))
 import glob
 import time
 import argparse
@@ -233,7 +235,7 @@ if __name__ == "__main__":
                 if is_goal_aux:
                     n_stack = cfg.get("n_stack", 4)
                     if n_stack > 1:
-                        from gap_rl.algorithms.scripts.custom_sac import FrameStackObsWrapper, default_stack_keys
+                        from custom_sac import FrameStackObsWrapper, default_stack_keys
                         stack_keys = default_stack_keys(env.observation_space)
                         env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
                 para = {
@@ -260,7 +262,7 @@ if __name__ == "__main__":
                         model_path = os.path.join(log_dir, "final_model")
                         
                 if is_goal_aux:
-                    from gap_rl.algorithms.scripts.custom_sac import CustomSAC
+                    from custom_sac import CustomSAC
                     load_cls = CustomSAC
                 else:
                     load_cls = SAC
