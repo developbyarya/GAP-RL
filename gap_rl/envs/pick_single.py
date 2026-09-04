@@ -1825,6 +1825,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
         self.obj.set_damping(0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
+        self.table_halfsize = [0.0, 0.0, 0.0]
         phy_mat = self._scene.create_physical_material(
             static_friction=1, dynamic_friction=1, restitution=0.0
         )
@@ -1941,6 +1942,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         self.obj.set_damping(0.1, 0.1)
         half_height = 0.005
         self.box_halfsize = (self.obj_aabb_halfsize[:2] + 0.03).tolist() + [half_height]
+        self.table_halfsize = [0.0, 0.0, 0.0]
         phy_mat = self._scene.create_physical_material(
             static_friction=1, dynamic_friction=1, restitution=0.0
         )
