@@ -1808,11 +1808,7 @@ class PickSingleACRONYMEnv(PickSingleEnv):
         self.obj.name = self.model_id
 
         obj_mesh = get_actor_mesh(self.obj, to_world_frame=True)
-        # obj_pc = obj_mesh.sample(2048)  # obj frame
-        obj_mesh_o3d = obj_mesh.as_open3d
-        obj_pc = np.asarray(
-            obj_mesh_o3d.sample_points_uniformly(256).points
-        )  # obj frame
+        obj_pc = obj_mesh.sample(256)  # obj frame
         # import open3d as o3d
         # mesh = o3d.io.read_triangle_mesh(visual_file)
         # obj_pc = np.asarray(mesh.sample_points_uniformly(2048).points)
@@ -1931,11 +1927,7 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         self.obj.name = model_name
 
         obj_mesh = get_actor_mesh(self.obj, to_world_frame=True)
-        # obj_pc = obj_mesh.sample(2048)  # obj frame
-        obj_mesh_o3d = obj_mesh.as_open3d
-        obj_pc = np.asarray(
-            obj_mesh_o3d.sample_points_uniformly(256).points
-        )  # obj frame
+        obj_pc = obj_mesh.sample(256)  # obj frame
         # import open3d as o3d
         # mesh = o3d.io.read_triangle_mesh(visual_file)
         # obj_pc = np.asarray(mesh.sample_points_uniformly(2048).points)
