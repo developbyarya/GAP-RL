@@ -208,6 +208,16 @@ if __name__ == "__main__":
             st_current_dataset = []
             env_id = env_cfg[eval_dataset]['env_id']
             model_ids = env_cfg[eval_dataset]['model_ids']
+            
+            # Map training obs_mode to runtime obs_mode
+            train_obs_mode = cfg.get('obs_mode', args.obs_mode)
+            if train_obs_mode == 'state_egopoints':
+                runtime_obs_mode = 'state_egopoints_rt'
+            elif train_obs_mode == 'state_grasp9d':
+                runtime_obs_mode = 'state_grasp9d_rt'
+            else:
+                runtime_obs_mode = train_obs_mode
+                
             for gen_traj_mode in args.gen_traj_modes:
                 env = gym.make(
                     env_id,
@@ -225,7 +235,7 @@ if __name__ == "__main__":
                     gen_traj_mode=gen_traj_mode,
                     vary_speed=cfg['vary_speed'],
                     grasp_select_mode=cfg['grasp_select_mode'],
-                    obs_mode=cfg.get('obs_mode', args.obs_mode),
+                    obs_mode=runtime_obs_mode,
                     control_mode=cfg['control_mode'],
                     reward_mode=cfg['reward_mode'],
                     sim_freq=cfg['sim_freq'],
@@ -547,6 +557,9 @@ if __name__ == "__main__":
 
                 sr_current_dataset.append(mean_sr)
                 st_current_dataset.append(mean_st)
+                
+                # Close the environment properly to release Vulkan resources
+                record_env.close()
 
             mean_sr_d, mean_st_d = np.mean(sr_current_dataset).round(3), np.mean(st_current_dataset).round(1)
             with open(f"{log_path}/{result_path}/mean_success_rates_steps.txt", "w") as f:
