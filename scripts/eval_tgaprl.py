@@ -219,6 +219,20 @@ if __name__ == "__main__":
                 runtime_obs_mode = train_obs_mode
                 
             for gen_traj_mode in args.gen_traj_modes:
+                save_file = f"{log_path}/{result_path}/{gen_traj_mode}/success_rates_steps.txt"
+                if os.path.exists(save_file):
+                    print(f"Skipping {eval_dataset} - {gen_traj_mode} as {save_file} already exists.")
+                    with open(save_file, "r") as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            if line.startswith("success rates (mean, std):"):
+                                val = line.split(":")[1].strip().strip('()').split(',')[0]
+                                sr_current_dataset.append(float(val))
+                            elif line.startswith("success steps (mean, std):"):
+                                val = line.split(":")[1].strip().strip('()').split(',')[0]
+                                st_current_dataset.append(float(val))
+                    continue
+
                 env = gym.make(
                     env_id,
                     robot=cfg['robot_id'],
