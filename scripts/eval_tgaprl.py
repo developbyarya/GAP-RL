@@ -303,6 +303,7 @@ if __name__ == "__main__":
 
                 success_rates = []
                 success_steps = []
+                all_ep_metrics = []
 
                 if args.save_all_grasp:
                     preg_gg_ee_list = OrderedDict()
@@ -386,12 +387,14 @@ if __name__ == "__main__":
                                 preg_gg_ee_list[model_id][num] = [grasps_ee]
                             if args.save_feat:
                                 pn_feat_list[model_id][num] = OrderedDict()
-                                pn_feat_list[model_id][num] = OrderedDict()
                                 pn_feat_list[model_id][num]["actor_pnfeat"] = []
                                 pn_feat_list[model_id][num]["critic_pnfeat"] = []
 
                             success_flag = False
                             total_steps = 0
+                            
+                            ep_flags = []
+                            ep_heights = []
 
                             for step in tqdm(range(args.max_steps), desc=f'Processing 2M', colour='green', leave=False):
                                 ## grasps_ee as mat form
@@ -448,6 +451,9 @@ if __name__ == "__main__":
                                     para = {"grasps_mat_ee": grasps_ee, "grasps_scores": grasps_scores}
                                     record_env.set_rt_paras(**para)
                                     obs, rewards, dones, info = record_env.step(action)
+                                    
+                                ep_flags.append(record_env.unwrapped.evaluate_success())
+                                ep_heights.append(record_env.unwrapped.obj.pose.p[2])
 
                                 if args.save_all_grasp:
                                     grasps_ee, grasps_scores = record_env.unwrapped._compute_near_grasps_rt()
