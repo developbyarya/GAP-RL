@@ -142,6 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--run-dir", type=str, default=None, help="Exact path to the run directory (e.g. runs/reward_ablation_...)")
     parser.add_argument("--model-name", type=str, default="rl_model_2000000_steps", help="Name of the model file to load (without .zip)")
     parser.add_argument("--seeds", type=int, nargs='+', required=True)
+    parser.add_argument("--force", action='store_true', help="Force re-evaluation even if results exist")
 
     parser.add_argument("--vis-grasp", action='store_true')
     parser.add_argument("--save-all-grasp", action='store_true')
@@ -220,7 +221,7 @@ if __name__ == "__main__":
                 
             for gen_traj_mode in args.gen_traj_modes:
                 save_file = f"{log_path}/{result_path}/{gen_traj_mode}/success_rates_steps.txt"
-                if os.path.exists(save_file):
+                if not args.force and os.path.exists(save_file):
                     print(f"Skipping {eval_dataset} - {gen_traj_mode} as {save_file} already exists.")
                     with open(save_file, "r") as f:
                         lines = f.readlines()
