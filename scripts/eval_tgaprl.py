@@ -271,7 +271,7 @@ if __name__ == "__main__":
                 env.set_rt_paras(**para)
                 record_env = RecordEpisode(
                     env=env,
-                    output_dir='./',
+                    output_dir=f"{log_path}/{result_path}/{gen_traj_mode}/videos",
                     save_trajectory=False,
                     trajectory_name=None,
                     save_video=args.save_video,
