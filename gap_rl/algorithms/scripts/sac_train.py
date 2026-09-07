@@ -48,6 +48,8 @@ if __name__ == "__main__":
     parser.add_argument("--exp-suffix", type=str, default=None, help="exp detail indications.")
     parser.add_argument("--timestamp", type=str, default=None, help="exp time stamp.")
     parser.add_argument("--distill", action='store_true')
+    parser.add_argument("--use-grasp-tracking", action='store_true', default=False, help="enable grasp tracking module")
+    parser.add_argument("--mask-early-episode-loss", action='store_true', default=False, help="mask loss for early episode padding")
 
     args = parser.parse_args()
 
@@ -58,6 +60,8 @@ if __name__ == "__main__":
     share_feat = cfg.get("share_feat", True)
     n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
     cfg["n_stack"] = n_stack
+    cfg["use_grasp_tracking"] = args.use_grasp_tracking
+    cfg["mask_early_episode_loss"] = args.mask_early_episode_loss
 
     env_cfg_file = ALGORITHM_DIR / f"config/env_settings.yaml"
     with open(env_cfg_file, "r", encoding="utf-8") as fin:
@@ -154,11 +158,14 @@ if __name__ == "__main__":
                 extra_pred_dim=9,
                 orig_observation_space=orig_obs_space,
                 stack_keys=stack_keys,
+                use_grasp_tracking=cfg["use_grasp_tracking"],
             ),
             tensorboard_log=log_dir + "sac_opendoor_tb/",
             seed=seed,
             device=cfg["device"],
             verbose=1,
+            mask_early_episode_loss=cfg["mask_early_episode_loss"],
+            n_stack=n_stack,
         )
     else:
         model = SAC(

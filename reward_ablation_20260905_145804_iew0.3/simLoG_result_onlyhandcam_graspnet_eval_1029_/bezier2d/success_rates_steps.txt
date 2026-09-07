@@ -1,0 +1,14 @@
+['035', '038', '041', '043', '046', '048', '055', '057', '063', '070']
+[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+[100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+success rates (mean, std): (0.0, 0.0)
+success steps (mean, std): (100.0, 0.0)
+
+--- Failure Metrics ---
+success_terminal: 0.0000
+grasp_without_lift: 0.0000
+slipped_after_lift: 0.8300
+grasp_loss: 0.0050
+late_success_timing: -1.0000
+stable_then_dropped: 0.0050
+peak_height: 13.7260

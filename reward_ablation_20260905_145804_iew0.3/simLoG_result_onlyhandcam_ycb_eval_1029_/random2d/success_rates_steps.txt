@@ -1,0 +1,14 @@
+['002_master_chef_can', '008_pudding_box', '012_strawberry', '013_apple', '015_peach', '033_spatula', '035_power_drill', '054_softball', '063-a_marbles', '070-a_colored_wood_blocks']
+[0.55, 0.0, 0.15, 0.55, 0.6, 0.0, 0.05, 0.4, 0.25, 0.1]
+[40.3636, 100, 71.6667, 62.6364, 62.8333, 100, 96.0, 50.5, 70.8, 66.5]
+success rates (mean, std): (0.265, 0.228)
+success steps (mean, std): (72.1, 19.5)
+
+--- Failure Metrics ---
+success_terminal: 0.1750
+grasp_without_lift: 0.1800
+slipped_after_lift: 0.1300
+grasp_loss: 0.3550
+late_success_timing: 9.6700
+stable_then_dropped: 0.3450
+peak_height: 0.1949

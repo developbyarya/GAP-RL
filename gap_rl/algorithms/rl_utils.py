@@ -181,6 +181,7 @@ class CustomGraspPointGroupExtractor(BaseFeaturesExtractor):
             self,
             observation_space: gym.spaces.Dict,
             group_center_cat: bool = False,
+            use_grasp_tracking: bool = False,
             device="cuda:0",
     ):
         super(CustomGraspPointGroupExtractor, self).__init__(observation_space, features_dim=1)
@@ -193,6 +194,8 @@ class CustomGraspPointGroupExtractor(BaseFeaturesExtractor):
         ).to(torch.device(device))
         self.gpcg.train()
         state_input_dim = 23 if group_center_cat else 20
+        if use_grasp_tracking:
+            state_input_dim += 1
         self.state_map = torch.nn.Linear(state_input_dim, 128, bias=True).to(torch.device(device))
         torch.nn.init.xavier_uniform_(self.state_map.weight, gain=1)
         torch.nn.init.constant_(self.state_map.bias, 0)
@@ -211,7 +214,11 @@ class CustomGraspPointGroupExtractor(BaseFeaturesExtractor):
         bs, ng, k, _ = gripper_pts_diff.shape
 
         ## other state
-        state = torch.cat([ee_pose_base, gripper_pos, action, grasp_exist], dim=1)
+        state_list = [ee_pose_base, gripper_pos, action, grasp_exist]
+        if "grasp_tracking_conf" in observations:
+            state_list.append(observations["grasp_tracking_conf"])
+            
+        state = torch.cat(state_list, dim=1)
         pn_feature = self.gpcg(origin_gripper_pts, gripper_pts_diff)  # (N, 256)
         state_feature = self.state_map(state)
 

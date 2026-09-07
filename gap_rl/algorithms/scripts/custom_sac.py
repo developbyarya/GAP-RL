@@ -27,6 +27,7 @@ from stable_baselines3.common.vec_env import VecEnvWrapper
 from stable_baselines3.sac.policies import CnnPolicy, MlpPolicy, MultiInputPolicy, SACPolicy
 from stable_baselines3.sac.policies import Actor, LOG_STD_MAX, LOG_STD_MIN
 import gym
+from gap_rl.algorithms.grasp_tracking import GraspTracking
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
 
@@ -37,6 +38,17 @@ AUX_OBS_KEYS = ("close_grasp_pose_ee", "eval_target")
 def default_stack_keys(observation_space: spaces.Dict) -> List[str]:
     """Stack every Dict key except aux supervision targets."""
     return [k for k in observation_space.spaces.keys() if k not in AUX_OBS_KEYS]
+
+def reconstruct_gripper_pts_diff(grasps_posrot_ee, origin_gripper_pts):
+    B, ng, _ = grasps_posrot_ee.shape
+    _, k, _ = origin_gripper_pts.shape
+    R_x = grasps_posrot_ee[:, :, 3:6]
+    R_y = grasps_posrot_ee[:, :, 6:9]
+    R_z = th.cross(R_x, R_y, dim=-1)
+    R = th.stack([R_x, R_y, R_z], dim=-1) # (B, ng, 3, 3)
+    T = grasps_posrot_ee[:, :, :3]
+    diff = th.einsum("bki, bnji -> bnkj", origin_gripper_pts, R) + T.unsqueeze(2)
+    return diff
 
 
 # ============================================================================
@@ -197,6 +209,7 @@ class CustomActor(Actor):
         clip_mean: float = 2.0,
         normalize_images: bool = True,
         extra_pred_dim: int = 7,
+        use_grasp_tracking: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -225,6 +238,10 @@ class CustomActor(Actor):
         self.target_pred = nn.Linear(last_layer_dim, 4)
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
+        
+        self.use_grasp_tracking = use_grasp_tracking
+        if self.use_grasp_tracking:
+            self.grasp_tracker = GraspTracking(pose_dim=9, hidden_size=16)
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         """
@@ -234,8 +251,31 @@ class CustomActor(Actor):
         """
         n_stack = obs[self.stack_keys[0]].shape[1]
         frame_feats = []
+        
+        tracker_hidden = None
+        prev_target = None
+        
         for t in range(n_stack):
             obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
+            
+            if self.use_grasp_tracking and "grasps_posrot_ee" in obs_t:
+                candidates = obs_t["grasps_posrot_ee"]
+                scores = obs_t["grasps_scores"]
+                
+                tracked_pose, conf, runner_ups, tracker_hidden = self.grasp_tracker(
+                    candidates, scores, prev_target, tracker_hidden
+                )
+                prev_target = tracked_pose
+                
+                new_grasps_posrot = th.cat([tracked_pose.unsqueeze(1), runner_ups], dim=1)
+                obs_t["grasps_posrot_ee"] = new_grasps_posrot
+                obs_t["grasp_tracking_conf"] = conf
+                
+                if "gripper_pts_diff" in obs_t and "origin_gripper_pts" in obs_t:
+                    obs_t["gripper_pts_diff"] = reconstruct_gripper_pts_diff(
+                        new_grasps_posrot, obs_t["origin_gripper_pts"]
+                    )
+                
             obs_t = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
             frame_feats.append(self.features_extractor(obs_t))
         seq = th.stack(frame_feats, dim=1)  # (batch, n_stack, features_dim)
@@ -302,6 +342,7 @@ class CustomContinuousCritic(BaseModel):
         n_critics: int = 2,
         share_features_extractor: bool = True,
         extra_pred_dim: int = 7,
+        use_grasp_tracking: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -332,13 +373,34 @@ class CustomContinuousCritic(BaseModel):
         self.target_pred = nn.Linear(features_dim, 4)
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
+        
+        self.use_grasp_tracking = use_grasp_tracking
+        if self.use_grasp_tracking:
+            self.grasp_tracker = GraspTracking(pose_dim=9, hidden_size=16)
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         n_stack = obs[self.stack_keys[0]].shape[1]
         frame_feats = []
+        
+        tracker_hidden = None
+        prev_target = None
+        
         with th.set_grad_enabled(not self.share_features_extractor):
             for t in range(n_stack):
                 obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
+                
+                if self.use_grasp_tracking and "grasps_posrot_ee" in obs_t:
+                    candidates = obs_t["grasps_posrot_ee"]
+                    scores = obs_t["grasps_scores"]
+                    
+                    tracked_pose, conf, runner_ups, tracker_hidden = self.grasp_tracker(
+                        candidates, scores, prev_target, tracker_hidden
+                    )
+                    prev_target = tracked_pose
+                    
+                    obs_t["grasps_posrot_ee"] = th.cat([tracked_pose.unsqueeze(1), runner_ups], dim=1)
+                    obs_t["grasp_tracking_conf"] = conf
+                    
                 obs_t = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
                 frame_feats.append(self.features_extractor(obs_t))
         seq = th.stack(frame_feats, dim=1)
@@ -408,10 +470,12 @@ class CustomSACPolicy(SACPolicy):
         n_critics: int = 2,
         share_features_extractor: bool = False,
         extra_pred_dim: int = 7,
+        use_grasp_tracking: bool = False,
     ):
         self.orig_observation_space = orig_observation_space
         self.stack_keys = stack_keys
         self.extra_pred_dim = extra_pred_dim
+        self.use_grasp_tracking = use_grasp_tracking
         super().__init__(
             observation_space,
             action_space,
@@ -433,6 +497,8 @@ class CustomSACPolicy(SACPolicy):
 
     def make_features_extractor(self) -> BaseFeaturesExtractor:
         kwargs = self.features_extractor_kwargs or {}
+        if self.use_grasp_tracking:
+            kwargs["use_grasp_tracking"] = True
         return self.features_extractor_class(self.orig_observation_space, **kwargs)
 
     def make_actor(self, features_extractor: Optional[BaseFeaturesExtractor] = None) -> Actor:
@@ -446,6 +512,7 @@ class CustomSACPolicy(SACPolicy):
                 extra_pred_dim=self.extra_pred_dim,
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
+                use_grasp_tracking=self.use_grasp_tracking,
             )
         )
         return CustomActor(**actor_kwargs).to(self.device)
@@ -461,6 +528,7 @@ class CustomSACPolicy(SACPolicy):
                 extra_pred_dim=self.extra_pred_dim,
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
+                use_grasp_tracking=self.use_grasp_tracking,
             )
         )
         return CustomContinuousCritic(**critic_kwargs).to(self.device)
@@ -594,7 +662,11 @@ class CustomSAC(SAC):
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
+        mask_early_episode_loss: bool = False,
+        n_stack: int = 4,
     ):
+        self.mask_early_episode_loss = mask_early_episode_loss
+        self.n_stack = n_stack
         super().__init__(
             policy,
             env,
@@ -669,13 +741,32 @@ class CustomSAC(SAC):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
             close_grasp_pose_ee = replay_data.observations["close_grasp_pose_ee"]  # unstacked, (bs, 9)
             eval_target = replay_data.observations["eval_target"]  # unstacked, (bs, 4)
+            
+            # Mask early episode transitions
+            loss_mask = th.ones(batch_size, dtype=th.bool, device=self.device)
+            if getattr(self, "mask_early_episode_loss", False) and getattr(self, "n_stack", 1) > 1:
+                key = self.policy.stack_keys[0]
+                frame0 = replay_data.observations[key][:, 0].view(batch_size, -1)
+                frame1 = replay_data.observations[key][:, 1].view(batch_size, -1)
+                diff = th.abs(frame0 - frame1).sum(dim=1)
+                loss_mask = diff > 1e-6
+                
+                # Ensure we have at least one valid sample to avoid NaNs
+                if not loss_mask.any():
+                    loss_mask[0] = True
 
             if self.use_sde:
                 self.actor.reset_noise()
 
             (actions_pi, log_prob), pred_pose_actor, pred_target_actor = self.actor.action_log_prob(replay_data.observations)
+            
+            # Apply mask to actor aux loss
             actor_aux_loss = goal_pred_rotmat_loss(pred_pose_actor, close_grasp_pose_ee)
+            if self.mask_early_episode_loss: actor_aux_loss = (actor_aux_loss * loss_mask).sum() / loss_mask.sum()
+            
             actor_target_loss = reward_target_loss(pred_target_actor, eval_target)
+            if self.mask_early_episode_loss: actor_target_loss = (actor_target_loss * loss_mask).sum() / loss_mask.sum()
+            
             actor_aux_losses.append(actor_aux_loss.item())
             actor_target_losses.append(actor_target_loss.item())
             log_prob = log_prob.reshape(-1, 1)
@@ -683,7 +774,11 @@ class CustomSAC(SAC):
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None:
                 ent_coef = th.exp(self.log_ent_coef.detach())
-                ent_coef_loss = -(self.log_ent_coef * (log_prob + self.target_entropy).detach()).mean()
+                # Mask entropy loss? Entropy loss depends only on current policy log_prob, we should probably mask it too
+                if self.mask_early_episode_loss:
+                    ent_coef_loss = -(self.log_ent_coef * (log_prob[loss_mask] + self.target_entropy).detach()).mean()
+                else:
+                    ent_coef_loss = -(self.log_ent_coef * (log_prob + self.target_entropy).detach()).mean()
                 ent_coef_losses.append(ent_coef_loss.item())
             else:
                 ent_coef = self.ent_coef_tensor
@@ -703,13 +798,25 @@ class CustomSAC(SAC):
                 target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
 
             current_q_values, pred_pose_critic, pred_target_critic = self.critic(replay_data.observations, replay_data.actions)
+            
             critic_aux_loss = goal_pred_rotmat_loss(pred_pose_critic, close_grasp_pose_ee)
+            if self.mask_early_episode_loss: critic_aux_loss = (critic_aux_loss * loss_mask).sum() / loss_mask.sum()
+            
             critic_target_loss = reward_target_loss(pred_target_critic, eval_target)
+            if self.mask_early_episode_loss: critic_target_loss = (critic_target_loss * loss_mask).sum() / loss_mask.sum()
+            
             critic_aux_losses.append(critic_aux_loss.item())
             critic_target_losses.append(critic_target_loss.item())
 
+            # Mask critic TD loss
+            if self.mask_early_episode_loss:
+                td_losses = [F.mse_loss(current_q, target_q_values, reduction='none') for current_q in current_q_values]
+                td_loss = sum((td[loss_mask]).mean() for td in td_losses) * 0.5
+            else:
+                td_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
+
             critic_loss = (
-                0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
+                td_loss
                 + critic_aux_loss * aux_weight
                 + critic_target_loss * target_weight
             )
@@ -722,7 +829,13 @@ class CustomSAC(SAC):
             q_values, _, _ = self.critic(replay_data.observations, actions_pi)
             q_values_pi = th.cat(q_values, dim=1)
             min_qf_pi, _ = th.min(q_values_pi, dim=1, keepdim=True)
-            actor_loss = (ent_coef * log_prob - min_qf_pi).mean() + actor_aux_loss * aux_weight + actor_target_loss * target_weight
+            
+            if self.mask_early_episode_loss:
+                actor_td_loss = (ent_coef * log_prob - min_qf_pi)[loss_mask].mean()
+            else:
+                actor_td_loss = (ent_coef * log_prob - min_qf_pi).mean()
+                
+            actor_loss = actor_td_loss + actor_aux_loss * aux_weight + actor_target_loss * target_weight
             actor_losses.append(actor_loss.item())
 
             self.actor.optimizer.zero_grad()

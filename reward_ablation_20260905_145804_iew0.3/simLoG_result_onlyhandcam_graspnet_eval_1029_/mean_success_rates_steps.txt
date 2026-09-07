@@ -1,0 +1,4 @@
+['bezier2d', 'random2d']
+success rates: [0.0, 0.005]
+success steps: [100.0, 98.8]
+avg (models) success rates, steps: 0.002, 99.4

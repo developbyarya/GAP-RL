@@ -664,10 +664,15 @@ class PickSingleEnv(BaseEnv):
         ## self-supervised reward target
         eval_target = np.array(self.evaluate_success())
 
+        grasps_posrot_ee = np.concatenate(
+            (grasps_ee[:, :3, 3], grasps_ee[:, :3, 0], grasps_ee[:, :3, 1]), axis=1
+        )  # (num, 9)
+
         obs.update(
             origin_gripper_pts=gripper_pts_ee.astype(np.float32),
             grasp_exist=grasp_exist.astype(np.float32),
             gripper_pts_diff=gripper_pts_diff.astype(np.float32),
+            grasps_posrot_ee=grasps_posrot_ee.astype(np.float32),
             grasps_scores=grasps_scores.astype(np.float32),
             close_grasp_pose_ee=close_grasp_pose_ee.astype(np.float32),
             eval_target=eval_target.astype(np.float32),
