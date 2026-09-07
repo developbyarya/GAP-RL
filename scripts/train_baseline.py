@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Clean script to train and evaluate the RAW baseline GAP-RL model.
-This script removes frame stacking and LSTM (by using standard SAC and standard config)
+This script removes frame stacking and LSTM (by reverting to the original custom_sac)
 and trains for the default 2M steps. It then automatically evaluates the final model,
 retaining the new failure evaluation metrics.
 
@@ -47,6 +47,8 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
+from custom_sac import CustomSAC  # Import the original CustomSAC
+
 from typing import Dict, Type
 
 extractor_aliases: Dict[str, Type[BaseFeaturesExtractor]] = {
@@ -58,8 +60,8 @@ extractor_aliases: Dict[str, Type[BaseFeaturesExtractor]] = {
 
 def main():
     parser = argparse.ArgumentParser(description="Baseline Training for GAP-RL")
-    # By default, use the clean egopoints_ur85_bezier2d config which has goal_aux=False
-    parser.add_argument("--config-name", type=str, default="egopoints_ur85_bezier2d")
+    # By default, use the goal_aux config which is the true GAP-RL baseline
+    parser.add_argument("--config-name", type=str, default="egopoints_ur85_bezier2d_goalaux")
     parser.add_argument("--log-std-init", type=float, default=-3.67,
                         help="Initial value for gSDE log_std (default: -3.67)")
     parser.add_argument("--total-timesteps", type=int, default=2_000_000)
@@ -81,6 +83,7 @@ def main():
         env_cfg = yaml.load(fin, Loader=yaml.FullLoader)
 
     share_feat = cfg.get("share_feat", True)
+    is_goal_aux = cfg.get("goal_aux", False)
 
     env_id = env_cfg["ycb_train"]["env_id"]
     model_ids = env_cfg["ycb_train"]["model_ids"]
@@ -139,9 +142,10 @@ def main():
         start_method="spawn",
     )
 
+    orig_obs_space = vec_env.observation_space
     vec_env = VecMonitor(vec_env, log_dir)
 
-    # ---- Build pure SAC model (RAW GAP-RL, NO LSTM, NO CustomSAC) ----
+    # ---- Build pure SAC model (RAW GAP-RL, NO LSTM, but uses Original CustomSAC if goal_aux) ----
     checkpoint_cb = CheckpointCallback(
         save_freq=max(args.total_timesteps // (cfg["train_procs"] * 5), 1000),
         save_path=log_dir,
@@ -149,30 +153,60 @@ def main():
     reward_cb = RewardComponentCallback(verbose=1)
     new_logger = configure(log_dir, ["stdout", "csv", "log", "tensorboard"])
 
-    model = SAC(
-        "MultiInputPolicy",
-        vec_env,
-        batch_size=512,
-        ent_coef="auto_0.2",
-        gamma=0.98,
-        train_freq=64,
-        gradient_steps=64,
-        buffer_size=100000,
-        learning_starts=800,
-        use_sde=True,
-        policy_kwargs=dict(
-            log_std_init=args.log_std_init,
-            net_arch=[256, 256],
-            features_extractor_class=rl_feat_extract_class,
-            features_extractor_kwargs=None,
-            normalize_images=False,
-            share_features_extractor=share_feat,
-        ),
-        tensorboard_log=os.path.join(log_dir, "tb/"),
-        seed=seed,
-        device=cfg["device"],
-        verbose=1,
-    )
+    if is_goal_aux:
+        print("Using CustomSAC for goal auxiliary loss")
+        model = CustomSAC(
+            "CustomSACPolicy",
+            vec_env,
+            batch_size=512,
+            ent_coef="auto_0.2",
+            gamma=0.98,
+            train_freq=64,
+            gradient_steps=64,
+            buffer_size=100000,
+            learning_starts=800,
+            use_sde=True,
+            policy_kwargs=dict(
+                log_std_init=args.log_std_init,
+                net_arch=[256, 256],
+                features_extractor_class=rl_feat_extract_class,
+                features_extractor_kwargs=None,
+                normalize_images=False,
+                share_features_extractor=share_feat,
+                extra_pred_dim=9,
+                orig_observation_space=orig_obs_space,
+            ),
+            tensorboard_log=os.path.join(log_dir, "tb/"),
+            seed=seed,
+            device=cfg["device"],
+            verbose=1,
+        )
+    else:
+        print("Using standard SAC")
+        model = SAC(
+            "MultiInputPolicy",
+            vec_env,
+            batch_size=512,
+            ent_coef="auto_0.2",
+            gamma=0.98,
+            train_freq=64,
+            gradient_steps=64,
+            buffer_size=100000,
+            learning_starts=800,
+            use_sde=True,
+            policy_kwargs=dict(
+                log_std_init=args.log_std_init,
+                net_arch=[256, 256],
+                features_extractor_class=rl_feat_extract_class,
+                features_extractor_kwargs=None,
+                normalize_images=False,
+                share_features_extractor=share_feat,
+            ),
+            tensorboard_log=os.path.join(log_dir, "tb/"),
+            seed=seed,
+            device=cfg["device"],
+            verbose=1,
+        )
 
     if getattr(model, "use_sde", False) and hasattr(model.policy, "actor"):
         with torch.no_grad():
