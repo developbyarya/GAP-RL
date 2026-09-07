@@ -174,7 +174,6 @@ def main():
                 normalize_images=False,
                 share_features_extractor=share_feat,
                 extra_pred_dim=9,
-                orig_observation_space=orig_obs_space,
             ),
             tensorboard_log=os.path.join(log_dir, "tb/"),
             seed=seed,
