@@ -259,11 +259,14 @@ if __name__ == "__main__":
                 )
                 env = NormalizeBoxActionWrapper(env)
                 if is_goal_aux:
-                    n_stack = cfg.get("n_stack", 4)
+                    n_stack = cfg.get("n_stack", 1)
                     if n_stack > 1:
-                        from custom_sac import FrameStackObsWrapper, default_stack_keys
-                        stack_keys = default_stack_keys(env.observation_space)
-                        env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
+                        try:
+                            from custom_sac import FrameStackObsWrapper, default_stack_keys
+                            stack_keys = default_stack_keys(env.observation_space)
+                            env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
+                        except ImportError:
+                            print("Warning: FrameStackObsWrapper not found, ignoring frame stacking")
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
