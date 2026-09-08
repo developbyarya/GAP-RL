@@ -257,6 +257,7 @@ if __name__ == "__main__":
                     control_freq=cfg['control_freq'],
                     device=cfg["device"],
                 )
+                print("Debug: Created env")
                 env = NormalizeBoxActionWrapper(env)
                 if is_goal_aux:
                     n_stack = cfg.get("n_stack", 1)
@@ -271,7 +272,9 @@ if __name__ == "__main__":
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
                 }
+                print("Debug: Setting RT paras")
                 env.set_rt_paras(**para)
+                print("Debug: Creating RecordEpisode")
                 record_env = RecordEpisode(
                     env=env,
                     output_dir=f"{log_path}/{result_path}/{gen_traj_mode}/videos",
@@ -283,6 +286,7 @@ if __name__ == "__main__":
                     save_on_reset=True,
                     clean_on_close=True,
                 )
+                print("Debug: Created RecordEpisode")
                 # Note: load RL model, it will change record._main_seed
                 model_path = os.path.join(log_dir, args.model_name)
                 if not os.path.exists(model_path + ".zip"):
@@ -291,9 +295,11 @@ if __name__ == "__main__":
                         model_path = os.path.join(log_dir, "final_model")
                         
                 if is_goal_aux:
+                    print("Debug: Loading CustomSAC")
                     from custom_sac import CustomSAC
                     load_cls = CustomSAC
                 else:
+                    print("Debug: Loading SAC")
                     load_cls = SAC
                     
                 print("=== Observation Space Before Loading ===")
