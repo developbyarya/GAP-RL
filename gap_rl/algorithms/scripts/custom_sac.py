@@ -30,6 +30,201 @@ import gym
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
 
+# Aux supervision targets: current-step only, never stacked into history.
+AUX_OBS_KEYS = ("close_grasp_pose_ee", "eval_target")
+
+
+def default_stack_keys(observation_space: spaces.Dict) -> List[str]:
+    """Stack every Dict key except aux supervision targets."""
+    return [k for k in observation_space.spaces.keys() if k not in AUX_OBS_KEYS]
+
+
+# ============================================================================
+# 1. Frame-stack wrappers
+# ============================================================================
+class FrameStackWrapper(VecEnvWrapper):
+    """
+    Stacks the given Dict-obs key(s) over the last `n_stack` steps into a new
+    leading time axis (n_stack, *orig_shape). Keys NOT in `stack_keys` are
+    passed through untouched (current step only).
+    """
+
+    def __init__(self, venv, n_stack: int, stack_keys: List[str]):
+        assert isinstance(venv.observation_space, spaces.Dict), "FrameStackWrapper needs a Dict obs space"
+        self.n_stack = n_stack
+        self.stack_keys = stack_keys
+
+        new_spaces = {}
+        for key, space in venv.observation_space.spaces.items():
+            if key in stack_keys:
+                low = np.repeat(space.low[None], n_stack, axis=0)
+                high = np.repeat(space.high[None], n_stack, axis=0)
+                new_spaces[key] = spaces.Box(low=low, high=high, dtype=space.dtype)
+            else:
+                new_spaces[key] = space
+        observation_space = spaces.Dict(new_spaces)
+
+        super().__init__(venv, observation_space=observation_space)
+        self.n_envs = venv.num_envs
+        self._history = [{k: deque(maxlen=n_stack) for k in stack_keys} for _ in range(self.n_envs)]
+
+    def _init_history(self, env_idx: int, obs: Dict[str, np.ndarray]):
+        for k in self.stack_keys:
+            self._history[env_idx][k].clear()
+            for _ in range(self.n_stack):
+                self._history[env_idx][k].append(obs[k])
+
+    def _push(self, env_idx: int, obs: Dict[str, np.ndarray]):
+        for k in self.stack_keys:
+            self._history[env_idx][k].append(obs[k])
+
+    def _build_obs(self, env_idx: int, obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        out = {}
+        for k, v in obs.items():
+            out[k] = np.stack(self._history[env_idx][k], axis=0) if k in self.stack_keys else v
+        return out
+
+    def reset(self) -> Dict[str, np.ndarray]:
+        obs = self.venv.reset()  # gym==0.21 VecEnv.reset() -> obs only
+        stacked = []
+        for i in range(self.n_envs):
+            single = {k: v[i] for k, v in obs.items()}
+            self._init_history(i, single)
+            stacked.append(self._build_obs(i, single))
+        return _stack_dicts(stacked)
+
+    def step_wait(self):
+        obs, rewards, dones, infos = self.venv.step_wait()  # gym==0.21 4-tuple
+        stacked = []
+        for i in range(self.n_envs):
+            single = {k: v[i] for k, v in obs.items()}
+            if dones[i]:
+                # VecEnv auto-resets on done: this `obs` is already the fresh
+                # reset observation, so re-seed the window rather than push
+                self._init_history(i, single)
+            else:
+                self._push(i, single)
+            stacked.append(self._build_obs(i, single))
+        return _stack_dicts(stacked), rewards, dones, infos
+
+
+class FrameStackObsWrapper(gym.ObservationWrapper):
+    """
+    Single-env (gym) counterpart of FrameStackWrapper for eval / RecordEpisode.
+    Also intercepts get_obs() so LoG eval's manual observation path is stacked.
+    """
+
+    def __init__(self, env, n_stack: int, stack_keys: List[str]):
+        assert isinstance(env.observation_space, spaces.Dict), "FrameStackObsWrapper needs a Dict obs space"
+        super().__init__(env)
+        self.n_stack = n_stack
+        self.stack_keys = stack_keys
+        self._history = {k: deque(maxlen=n_stack) for k in stack_keys}
+
+        new_spaces = {}
+        for key, space in env.observation_space.spaces.items():
+            if key in stack_keys:
+                low = np.repeat(space.low[None], n_stack, axis=0)
+                high = np.repeat(space.high[None], n_stack, axis=0)
+                new_spaces[key] = spaces.Box(low=low, high=high, dtype=space.dtype)
+            else:
+                new_spaces[key] = space
+        self.observation_space = spaces.Dict(new_spaces)
+
+    def _init_history(self, obs: Dict[str, np.ndarray]):
+        for k in self.stack_keys:
+            self._history[k].clear()
+            for _ in range(self.n_stack):
+                self._history[k].append(obs[k])
+
+    def _push(self, obs: Dict[str, np.ndarray]):
+        for k in self.stack_keys:
+            self._history[k].append(obs[k])
+
+    def _build_obs(self, obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        out = {}
+        for k, v in obs.items():
+            out[k] = np.stack(self._history[k], axis=0) if k in self.stack_keys else v
+        return out
+
+    def observation(self, observation: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        return self._build_obs(observation)
+
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        self._init_history(obs)
+        return self.observation(obs)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self._push(obs)
+        return self.observation(obs), reward, done, info
+
+    def get_obs(self, *args, **kwargs):
+        obs = self.env.get_obs(*args, **kwargs)
+        # After reset, LoG eval often rebuilds obs via get_obs; treat as a push
+        # so the window reflects the latest grasp/state setup.
+        if all(len(self._history[k]) == self.n_stack for k in self.stack_keys):
+            self._push(obs)
+        else:
+            self._init_history(obs)
+        return self.observation(obs)
+
+
+def _stack_dicts(list_of_dicts: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
+    keys = list_of_dicts[0].keys()
+    return {k: np.stack([d[k] for d in list_of_dicts], axis=0) for k in keys}
+
+
+
+class TokenSelfAttention(nn.Module):
+    def __init__(self, d_attn: int = 384, use_attn_lstm: bool = False):
+        super().__init__()
+        self.use_attn_lstm = use_attn_lstm
+        self.d_attn = d_attn
+        
+        if self.use_attn_lstm:
+            # Linear projections for each of the 5 tokens
+            self.proj_pn = nn.Linear(256, d_attn)
+            self.proj_tcp = nn.Linear(6, d_attn)
+            self.proj_gripper = nn.Linear(2, d_attn)
+            self.proj_action = nn.Linear(7, d_attn)
+            self.proj_grasp = nn.Linear(5, d_attn)
+            
+            # Q, K, V projections for the self-attention
+            self.W_q = nn.Linear(d_attn, d_attn)
+            self.W_k = nn.Linear(d_attn, d_attn)
+            self.W_v = nn.Linear(d_attn, d_attn)
+
+    def forward(self, obs_t, features_extractor_out):
+        if not self.use_attn_lstm:
+            return features_extractor_out
+            
+        pn_feature = features_extractor_out[:, -256:] # (batch, 256)
+        tcp_pose = obs_t["tcp_pose"] # (batch, 6)
+        gripper_pos = obs_t["gripper_pos"] # (batch, 2)
+        action = obs_t["action"] # (batch, 7)
+        grasp_exist = obs_t["grasp_exist"] # (batch, 5)
+        
+        t1 = self.proj_pn(pn_feature) # (batch, d_attn)
+        t2 = self.proj_tcp(tcp_pose)
+        t3 = self.proj_gripper(gripper_pos)
+        t4 = self.proj_action(action)
+        t5 = self.proj_grasp(grasp_exist)
+        
+        tokens = th.stack([t1, t2, t3, t4, t5], dim=1) # (batch, 5, d_attn)
+        
+        Q = self.W_q(tokens) # (batch, 5, d_attn)
+        K = self.W_k(tokens) # (batch, 5, d_attn)
+        V = self.W_v(tokens) # (batch, 5, d_attn)
+        
+        scores = th.bmm(Q, K.transpose(1, 2)) / (self.d_attn ** 0.5) # (batch, 5, 5)
+        attn_weights = F.softmax(scores, dim=-1)
+        attended_tokens = th.bmm(attn_weights, V) # (batch, 5, d_attn)
+        
+        flattened = attended_tokens.view(attended_tokens.size(0), -1)
+        return flattened
+
 # ============================================================================
 # 2. Actor -- per-frame extraction + real windowed LSTM
 
@@ -42,6 +237,7 @@ class CustomActor(Actor):
         net_arch: List[int],
         features_extractor: nn.Module,
         features_dim: int,
+        stack_keys: List[str],
         orig_observation_space: spaces.Dict,
         activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
@@ -68,6 +264,7 @@ class CustomActor(Actor):
             clip_mean,
             normalize_images=normalize_images,
         )
+        self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
 
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
@@ -85,10 +282,20 @@ class CustomActor(Actor):
         nn.init.constant_(self.target_pred.bias, 0)
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
-        obs_pre = preprocess_obs(obs, self.orig_observation_space, normalize_images=self.normalize_images)
-        feat = self.features_extractor(obs_pre)
-        feat = self.token_attn(obs_pre, feat)
-        seq = feat.unsqueeze(1)  # (batch, 1, features_dim)
+        """
+        obs[key] for key in stack_keys has shape (batch, n_stack, *orig_shape).
+        Slice each timestep, run the per-frame features_extractor, LSTM over the
+        real sequence.
+        """
+        n_stack = obs[self.stack_keys[0]].shape[1]
+        frame_feats = []
+        for t in range(n_stack):
+            obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
+            obs_t_pre = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
+            feat = self.features_extractor(obs_t_pre)
+            feat = self.token_attn(obs_t_pre, feat)
+            frame_feats.append(feat)
+        seq = th.stack(frame_feats, dim=1)  # (batch, n_stack, features_dim)
         lstm_out, _ = self.lstm(seq)
         return lstm_out[:, -1, :]
 
@@ -145,6 +352,7 @@ class CustomContinuousCritic(BaseModel):
         net_arch: List[int],
         features_extractor: BaseFeaturesExtractor,
         features_dim: int,
+        stack_keys: List[str],
         orig_observation_space: spaces.Dict,
         activation_fn: Type[nn.Module] = nn.ReLU,
         normalize_images: bool = True,
@@ -161,6 +369,7 @@ class CustomContinuousCritic(BaseModel):
             normalize_images=normalize_images,
         )
         action_dim = get_action_dim(self.action_space)
+        self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
 
         self.share_features_extractor = share_features_extractor
@@ -187,11 +396,16 @@ class CustomContinuousCritic(BaseModel):
         nn.init.constant_(self.target_pred.bias, 0)
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
+        n_stack = obs[self.stack_keys[0]].shape[1]
+        frame_feats = []
         with th.set_grad_enabled(not self.share_features_extractor):
-            obs_pre = preprocess_obs(obs, self.orig_observation_space, normalize_images=self.normalize_images)
-            feat = self.features_extractor(obs_pre)
-            feat = self.token_attn(obs_pre, feat)
-        seq = feat.unsqueeze(1)
+            for t in range(n_stack):
+                obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
+                obs_t_pre = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
+                feat = self.features_extractor(obs_t_pre)
+                feat = self.token_attn(obs_t_pre, feat)
+                frame_feats.append(feat)
+        seq = th.stack(frame_feats, dim=1)
         lstm_out, _ = self.lstm(seq)
         return lstm_out[:, -1, :]
 
@@ -243,6 +457,7 @@ class CustomSACPolicy(SACPolicy):
         action_space: spaces.Space,
         lr_schedule: Schedule,
         orig_observation_space: spaces.Dict,
+        stack_keys: List[str],
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
@@ -263,6 +478,7 @@ class CustomSACPolicy(SACPolicy):
         self.use_attn_lstm = use_attn_lstm
         self.d_attn = d_attn
         self.orig_observation_space = orig_observation_space
+        self.stack_keys = stack_keys
         self.extra_pred_dim = extra_pred_dim
         super().__init__(
             observation_space,
@@ -296,6 +512,7 @@ class CustomSACPolicy(SACPolicy):
                 features_extractor=features_extractor,
                 features_dim=features_extractor.features_dim,
                 extra_pred_dim=self.extra_pred_dim,
+                stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
                 use_attn_lstm=self.use_attn_lstm,
                 d_attn=self.d_attn,
@@ -312,6 +529,7 @@ class CustomSACPolicy(SACPolicy):
                 features_extractor=features_extractor,
                 features_dim=features_extractor.features_dim,
                 extra_pred_dim=self.extra_pred_dim,
+                stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
                 use_attn_lstm=self.use_attn_lstm,
                 d_attn=self.d_attn,
