@@ -21,7 +21,7 @@ from gap_rl.algorithms.rl_utils import (
     CustomGraspPointExtractor,
     CustomGraspPointGroupExtractor,
 )
-from custom_sac import CustomSAC, FrameStackWrapper, FrameStackObsWrapper, default_stack_keys
+from custom_sac import CustomSAC
 
 from stable_baselines3 import SAC
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
@@ -58,8 +58,6 @@ if __name__ == "__main__":
         cfg = yaml.load(fin, Loader=yaml.FullLoader)
     is_goal_aux = cfg.get("goal_aux", False)
     share_feat = cfg.get("share_feat", True)
-    n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
-    cfg["n_stack"] = n_stack
 
     env_cfg_file = ALGORITHM_DIR / f"config/env_settings.yaml"
     with open(env_cfg_file, "r", encoding="utf-8") as fin:
@@ -117,12 +115,7 @@ if __name__ == "__main__":
     )
     # Capture unstacked Dict space before frame-stacking (features_extractor is built against this).
     orig_obs_space = vec_env.observation_space
-    stack_keys = default_stack_keys(orig_obs_space)
-    if is_goal_aux:
-        # Always wrap CustomSAC envs so stacked keys have a leading time axis
-        # (n_stack==1 still yields shape (1, *orig) for a consistent LSTM window).
-        vec_env = FrameStackWrapper(vec_env, n_stack=n_stack, stack_keys=stack_keys)
-        print(f"FrameStack: n_stack={n_stack}, stack_keys={stack_keys}")
+
     vec_env = VecMonitor(vec_env, log_dir)
 
     for obs_key, box_space in vec_env.observation_space.items():
@@ -156,7 +149,6 @@ if __name__ == "__main__":
                 share_features_extractor=share_feat,
                 extra_pred_dim=9,
                 orig_observation_space=orig_obs_space,
-                stack_keys=stack_keys,
                 use_attn_lstm=args.use_attn_lstm,
                 d_attn=args.d_attn,
             ),
@@ -227,8 +219,7 @@ if __name__ == "__main__":
         device=cfg["device"],
         seed=eval_seed,
     )
-    if is_goal_aux and n_stack > 1:
-        evalenv = FrameStackObsWrapper(evalenv, n_stack=n_stack, stack_keys=stack_keys)
+
     print("set eval env with seed: ", eval_seed)
 
     success_rates = defaultdict(list)
