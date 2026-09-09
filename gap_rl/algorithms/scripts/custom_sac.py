@@ -176,8 +176,58 @@ def _stack_dicts(list_of_dicts: List[Dict[str, np.ndarray]]) -> Dict[str, np.nda
     return {k: np.stack([d[k] for d in list_of_dicts], axis=0) for k in keys}
 
 
+
+class TokenSelfAttention(nn.Module):
+    def __init__(self, d_attn: int = 384, use_attn_lstm: bool = False):
+        super().__init__()
+        self.use_attn_lstm = use_attn_lstm
+        self.d_attn = d_attn
+        
+        if self.use_attn_lstm:
+            # Linear projections for each of the 5 tokens
+            self.proj_pn = nn.Linear(256, d_attn)
+            self.proj_tcp = nn.Linear(6, d_attn)
+            self.proj_gripper = nn.Linear(2, d_attn)
+            self.proj_action = nn.Linear(7, d_attn)
+            self.proj_grasp = nn.Linear(5, d_attn)
+            
+            # Q, K, V projections for the self-attention
+            self.W_q = nn.Linear(d_attn, d_attn)
+            self.W_k = nn.Linear(d_attn, d_attn)
+            self.W_v = nn.Linear(d_attn, d_attn)
+
+    def forward(self, obs_t, features_extractor_out):
+        if not self.use_attn_lstm:
+            return features_extractor_out
+            
+        pn_feature = features_extractor_out[:, -256:] # (batch, 256)
+        tcp_pose = obs_t["tcp_pose"] # (batch, 6)
+        gripper_pos = obs_t["gripper_pos"] # (batch, 2)
+        action = obs_t["action"] # (batch, 7)
+        grasp_exist = obs_t["grasp_exist"] # (batch, 5)
+        
+        t1 = self.proj_pn(pn_feature) # (batch, d_attn)
+        t2 = self.proj_tcp(tcp_pose)
+        t3 = self.proj_gripper(gripper_pos)
+        t4 = self.proj_action(action)
+        t5 = self.proj_grasp(grasp_exist)
+        
+        tokens = th.stack([t1, t2, t3, t4, t5], dim=1) # (batch, 5, d_attn)
+        
+        Q = self.W_q(tokens) # (batch, 5, d_attn)
+        K = self.W_k(tokens) # (batch, 5, d_attn)
+        V = self.W_v(tokens) # (batch, 5, d_attn)
+        
+        scores = th.bmm(Q, K.transpose(1, 2)) / (self.d_attn ** 0.5) # (batch, 5, 5)
+        attn_weights = F.softmax(scores, dim=-1)
+        attended_tokens = th.bmm(attn_weights, V) # (batch, 5, d_attn)
+        
+        flattened = attended_tokens.view(attended_tokens.size(0), -1)
+        return flattened
+
 # ============================================================================
 # 2. Actor -- per-frame extraction + real windowed LSTM
+
 # ============================================================================
 class CustomActor(Actor):
     def __init__(
@@ -197,6 +247,8 @@ class CustomActor(Actor):
         clip_mean: float = 2.0,
         normalize_images: bool = True,
         extra_pred_dim: int = 7,
+        use_attn_lstm: bool = False,
+        d_attn: int = 384,
     ):
         super().__init__(
             observation_space,
@@ -216,7 +268,10 @@ class CustomActor(Actor):
         self.orig_observation_space = orig_observation_space
 
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
-        self.lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
+        self.use_attn_lstm = use_attn_lstm
+        self.token_attn = TokenSelfAttention(d_attn=d_attn, use_attn_lstm=use_attn_lstm)
+        lstm_input_dim = 5 * d_attn if use_attn_lstm else features_dim
+        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
         self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
@@ -236,8 +291,10 @@ class CustomActor(Actor):
         frame_feats = []
         for t in range(n_stack):
             obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
-            obs_t = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
-            frame_feats.append(self.features_extractor(obs_t))
+            obs_t_pre = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
+            feat = self.features_extractor(obs_t_pre)
+            feat = self.token_attn(obs_t_pre, feat)
+            frame_feats.append(feat)
         seq = th.stack(frame_feats, dim=1)  # (batch, n_stack, features_dim)
         lstm_out, _ = self.lstm(seq)
         return lstm_out[:, -1, :]
@@ -302,6 +359,8 @@ class CustomContinuousCritic(BaseModel):
         n_critics: int = 2,
         share_features_extractor: bool = True,
         extra_pred_dim: int = 7,
+        use_attn_lstm: bool = False,
+        d_attn: int = 384,
     ):
         super().__init__(
             observation_space,
@@ -322,7 +381,10 @@ class CustomContinuousCritic(BaseModel):
             self.add_module(f"qf{idx}", q_net)
             self.q_networks.append(q_net)
 
-        self.lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
+        self.use_attn_lstm = use_attn_lstm
+        self.token_attn = TokenSelfAttention(d_attn=d_attn, use_attn_lstm=use_attn_lstm)
+        lstm_input_dim = 5 * d_attn if use_attn_lstm else features_dim
+        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
 
         self.extra_pred_dim = extra_pred_dim
         self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
@@ -339,8 +401,10 @@ class CustomContinuousCritic(BaseModel):
         with th.set_grad_enabled(not self.share_features_extractor):
             for t in range(n_stack):
                 obs_t = {k: (v[:, t] if k in self.stack_keys else v) for k, v in obs.items()}
-                obs_t = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
-                frame_feats.append(self.features_extractor(obs_t))
+                obs_t_pre = preprocess_obs(obs_t, self.orig_observation_space, normalize_images=self.normalize_images)
+                feat = self.features_extractor(obs_t_pre)
+                feat = self.token_attn(obs_t_pre, feat)
+                frame_feats.append(feat)
         seq = th.stack(frame_feats, dim=1)
         lstm_out, _ = self.lstm(seq)
         return lstm_out[:, -1, :]
@@ -408,7 +472,11 @@ class CustomSACPolicy(SACPolicy):
         n_critics: int = 2,
         share_features_extractor: bool = False,
         extra_pred_dim: int = 7,
+        use_attn_lstm: bool = False,
+        d_attn: int = 384,
     ):
+        self.use_attn_lstm = use_attn_lstm
+        self.d_attn = d_attn
         self.orig_observation_space = orig_observation_space
         self.stack_keys = stack_keys
         self.extra_pred_dim = extra_pred_dim
@@ -446,6 +514,8 @@ class CustomSACPolicy(SACPolicy):
                 extra_pred_dim=self.extra_pred_dim,
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
+                use_attn_lstm=self.use_attn_lstm,
+                d_attn=self.d_attn,
             )
         )
         return CustomActor(**actor_kwargs).to(self.device)
@@ -461,6 +531,8 @@ class CustomSACPolicy(SACPolicy):
                 extra_pred_dim=self.extra_pred_dim,
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
+                use_attn_lstm=self.use_attn_lstm,
+                d_attn=self.d_attn,
             )
         )
         return CustomContinuousCritic(**critic_kwargs).to(self.device)
