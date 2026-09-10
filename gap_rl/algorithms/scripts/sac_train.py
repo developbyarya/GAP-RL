@@ -138,7 +138,7 @@ if __name__ == "__main__":
         model = CustomSAC(
             "CustomSACPolicy",
             vec_env,
-            batch_size=512,  # 1024, 400
+            batch_size=128,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         model = SAC(
             "MultiInputPolicy",
             vec_env,
-            batch_size=512,  # 1024, 400
+            batch_size=128,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
