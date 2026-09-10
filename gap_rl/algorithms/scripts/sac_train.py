@@ -142,7 +142,7 @@ if __name__ == "__main__":
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
-            gradient_steps=64,  # 2, 4
+            gradient_steps=128,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,
@@ -173,7 +173,7 @@ if __name__ == "__main__":
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
-            gradient_steps=64,  # 2, 4
+            gradient_steps=128,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,
