@@ -790,8 +790,8 @@ class CustomSAC(SAC):
             self.critic.optimizer.zero_grad()
             critic_loss.backward()
             if getattr(self.critic, "use_attn_lstm", False):
-                th.nn.utils.clip_grad_norm_(self.critic.lstm.parameters(), max_norm=1.0)
-                th.nn.utils.clip_grad_norm_(self.critic.token_attn.parameters(), max_norm=1.0)
+                th.nn.utils.clip_grad_norm_(self.critic.lstm.parameters(), max_norm=5.0)
+                th.nn.utils.clip_grad_norm_(self.critic.token_attn.parameters(), max_norm=5.0)
             self.critic.optimizer.step()
 
             q_values, _, _ = self.critic(replay_data.observations, actions_pi)
@@ -803,8 +803,8 @@ class CustomSAC(SAC):
             self.actor.optimizer.zero_grad()
             actor_loss.backward()
             if getattr(self.actor, "use_attn_lstm", False):
-                th.nn.utils.clip_grad_norm_(self.actor.lstm.parameters(), max_norm=1.0)
-                th.nn.utils.clip_grad_norm_(self.actor.token_attn.parameters(), max_norm=1.0)
+                th.nn.utils.clip_grad_norm_(self.actor.lstm.parameters(), max_norm=5.0)
+                th.nn.utils.clip_grad_norm_(self.actor.token_attn.parameters(), max_norm=5.0)
             self.actor.optimizer.step()
 
             if gradient_step % self.target_update_interval == 0:
