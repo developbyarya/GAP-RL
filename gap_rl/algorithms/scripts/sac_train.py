@@ -138,17 +138,17 @@ if __name__ == "__main__":
         model = CustomSAC(
             "CustomSACPolicy",
             vec_env,
-            batch_size=128,  # 1024, 400
+            batch_size=512,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
-            gradient_steps=128,  # 2, 4
+            gradient_steps=64,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,
             policy_kwargs=dict(
                 # optimizer_class=torch.optim.AdamW,
-                log_std_init=-3.67,
+                log_std_init=-1.5,
                 net_arch=[256, 256],
                 features_extractor_class=rl_feat_extract_class,
                 features_extractor_kwargs=None,
@@ -169,17 +169,17 @@ if __name__ == "__main__":
         model = SAC(
             "MultiInputPolicy",
             vec_env,
-            batch_size=128,  # 1024, 400
+            batch_size=512,  # 1024, 400
             ent_coef="auto_0.2",
             gamma=0.98,
             train_freq=64,  # 4, 64
-            gradient_steps=128,  # 2, 4
+            gradient_steps=64,  # 2, 4
             buffer_size=100000,
             learning_starts=800,
             use_sde=True,
             policy_kwargs=dict(
                 # optimizer_class=torch.optim.AdamW,
-                log_std_init=-3.67,
+                log_std_init=-1.5,
                 net_arch=[256, 256],
                 features_extractor_class=rl_feat_extract_class,
                 features_extractor_kwargs=None,
