@@ -48,8 +48,8 @@ if __name__ == "__main__":
     parser.add_argument("--exp-suffix", type=str, default=None, help="exp detail indications.")
     parser.add_argument("--timestamp", type=str, default=None, help="exp time stamp.")
     parser.add_argument("--distill", action='store_true')
-    parser.add_argument("--use-attn-lstm", action='store_true', help="Use Attention before LSTM.")
-    parser.add_argument("--d-attn", type=int, default=384, help="Attention embedding dimension.")
+    parser.add_argument("--use-lstm", action='store_true', help="Use Attention before LSTM.")
+    parser.add_argument("--d-lstm", type=int, default=384, help="Attention embedding dimension.")
 
     args = parser.parse_args()
 
@@ -75,8 +75,7 @@ if __name__ == "__main__":
 
     # Create log dir
     vary_str = "vary" if cfg["vary_speed"] else "fix"
-    attn_str = f"_attn{args.d_attn}" if args.use_attn_lstm else ""
-    exp_suffix = f"YCB{len(model_ids)}_{cfg['num_grasps']}_{cfg['gen_traj_mode']}_{vary_str}_{args.exp_suffix}{attn_str}"
+    exp_suffix = f"YCB{len(model_ids)}_{cfg['num_grasps']}_{cfg['gen_traj_mode']}_{vary_str}_{args.exp_suffix}{lstm_str}"
     time_stamp = args.timestamp if args.timestamp is not None else time.strftime("%Y%m%d_%H%M%S", time.localtime())
     log_dir = f"{time_stamp}_sac{cfg['train_procs']}_{cfg['obs_mode']}_{cfg['control_mode']}_{exp_suffix}"
     cfg["log_dir"] = log_dir
@@ -157,8 +156,7 @@ if __name__ == "__main__":
                 extra_pred_dim=9,
                 orig_observation_space=orig_obs_space,
                 stack_keys=stack_keys,
-                use_attn_lstm=args.use_attn_lstm,
-                d_attn=args.d_attn,
+                use_lstm=args.use_lstm,
             ),
             tensorboard_log=log_dir + "sac_opendoor_tb/",
             seed=seed,
