@@ -74,6 +74,7 @@ if __name__ == "__main__":
     rl_feat_extract_class = extractor_aliases[cfg["obs_mode"]]
 
     # Create log dir
+    lstm_str = "_lstm" if args.use_lstm else ""
     vary_str = "vary" if cfg["vary_speed"] else "fix"
     exp_suffix = f"YCB{len(model_ids)}_{cfg['num_grasps']}_{cfg['gen_traj_mode']}_{vary_str}_{args.exp_suffix}{lstm_str}"
     time_stamp = args.timestamp if args.timestamp is not None else time.strftime("%Y%m%d_%H%M%S", time.localtime())
