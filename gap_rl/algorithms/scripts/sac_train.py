@@ -139,8 +139,7 @@ if __name__ == "__main__":
             "CustomSACPolicy",
             vec_env,
             batch_size=256,  # 1024, 400
-            ent_coef="auto_0.2",
-            target_entropy=-3.0,
+            ent_coef=0.1,
             gamma=0.98,
             train_freq=64,  # 4, 64
             gradient_steps=64,  # 2, 4
@@ -170,8 +169,7 @@ if __name__ == "__main__":
             "MultiInputPolicy",
             vec_env,
             batch_size=256,  # 1024, 400
-            ent_coef="auto_0.2",
-            target_entropy=-3.0,
+            ent_coef=0.1,
             gamma=0.98,
             train_freq=64,  # 4, 64
             gradient_steps=64,  # 2, 4
