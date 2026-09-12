@@ -25,7 +25,7 @@ from gap_rl.utils.trimesh_utils import get_articulation_meshes, merge_meshes
 from gap_rl.utils.o3d_utils import draw_o3d_geometries
 from gap_rl.localgrasp.LoG import lg_parse, LgNet, GraspGroup
 
-from stable_baselines3 import SAC
+from custom_sac import CustomSAC
 
 import pickle
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
                     if os.path.exists(os.path.join(log_dir, "final_model.zip")):
                         model_path = os.path.join(log_dir, "final_model")
                         
-                rl_model = SAC.load(model_path,
+                rl_model = CustomSAC.load(model_path,
                                     env=record_env,
                                     print_system_info=True
                                     )
