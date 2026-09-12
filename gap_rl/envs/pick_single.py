@@ -168,7 +168,7 @@ class PickSingleEnv(BaseEnv):
         self.device = torch.device(kwargs.pop("device", "cuda:0"))
         # Configurable reward weight for info_exist_reward (Step 4 ablation).
         # Default 3.0 preserves existing behavior.
-        self.info_exist_weight = float(kwargs.pop("info_exist_weight", 0.3))
+        self.info_exist_weight = float(kwargs.pop("info_exist_weight", 3.0))
 
         self._check_assets()
         super().__init__(**kwargs)
