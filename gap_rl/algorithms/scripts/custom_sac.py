@@ -688,8 +688,8 @@ class CustomSAC(SAC):
         actor_aux_losses, critic_aux_losses = [], []
         actor_target_losses, critic_target_losses = [], []
 
-        aux_weight = 100 * 0.98 ** (self.num_timesteps // 20000)
-        target_weight = 100 * 0.98 ** (self.num_timesteps // 20000)
+        aux_weight = 24.0
+        target_weight = 24.0
 
         for gradient_step in range(gradient_steps):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
