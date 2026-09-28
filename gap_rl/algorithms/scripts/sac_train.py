@@ -238,9 +238,12 @@ if __name__ == "__main__":
     # Set new logger
     model.set_logger(new_logger)
     reward_cb = RewardComponentCallback(verbose=1)
+    from plasticity import PlasticityResetCallback
+    plasticity_cb = PlasticityResetCallback(reset_freq=1_000_000, verbose=1)
+    
     model.learn(
         total_timesteps=5_000_000,
-        callback=[checkpoint_callback, reward_cb, eval_callback],
+        callback=[checkpoint_callback, reward_cb, eval_callback, plasticity_cb],
     )
     # model.save_replay_buffer(log_dir + "/sac_replay_buffer")
 
