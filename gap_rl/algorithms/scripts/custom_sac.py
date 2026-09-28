@@ -222,8 +222,11 @@ class CustomActor(Actor):
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
         self.use_lstm = use_lstm
         lstm_input_dim = features_dim
-        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
-        self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)
+        import copy
+        self.aux_features_extractor = copy.deepcopy(features_extractor)
+        self.aux_lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
+        self.lstm = nn.LSTM(features_dim * 2, features_dim, batch_first=True)
+        self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
         self.extra_pred_dim = extra_pred_dim
@@ -249,10 +252,21 @@ class CustomActor(Actor):
                 flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
                 
         flat_obs_pre = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
-        flat_feat = self.features_extractor(flat_obs_pre)
         
-        seq = flat_feat.view(batch_size, n_stack, -1)
-        lstm_out, _ = self.lstm(seq)
+        # Aux Trunk
+        flat_feat_aux = self.aux_features_extractor(flat_obs_pre)
+        seq_aux = flat_feat_aux.view(batch_size, n_stack, -1)
+        aux_lstm_out, _ = self.aux_lstm(seq_aux)
+        self._latest_aux_out = aux_lstm_out[:, -1, :]
+        
+        # RL Trunk
+        flat_feat = self.features_extractor(flat_obs_pre)
+        seq_rl = flat_feat.view(batch_size, n_stack, -1)
+        
+        # Combine
+        import torch as th
+        combined_seq = th.cat([seq_rl, seq_aux.detach()], dim=-1)
+        lstm_out, _ = self.lstm(combined_seq)
         return lstm_out[:, -1, :]
 
     def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
@@ -273,7 +287,7 @@ class CustomActor(Actor):
     def action_log_prob(self, obs: th.Tensor) -> Tuple[Tuple[th.Tensor, th.Tensor], th.Tensor, th.Tensor]:
         assert self.use_sde, "use_sde True."
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
-        extra_pred = self.extra_pred(kwargs["latent_sde"])
+        extra_pred = self.extra_pred(self._latest_aux_out)
         if self.extra_pred_dim == 7:
             extra_pred = th.cat(
                 (F.normalize(extra_pred[:, :4], p=2, dim=-1), extra_pred[:, 4:]), dim=-1
@@ -289,7 +303,7 @@ class CustomActor(Actor):
             )
         else:
             raise NotImplementedError
-        target_pred = self.target_pred(kwargs["latent_sde"])
+        target_pred = self.target_pred(self._latest_aux_out)
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs), extra_pred, target_pred
 
     def features_forward(self, obs: th.Tensor):
@@ -338,7 +352,10 @@ class CustomContinuousCritic(BaseModel):
 
         self.use_lstm = use_lstm
         lstm_input_dim = features_dim
-        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
+        import copy
+        self.aux_features_extractor = copy.deepcopy(features_extractor)
+        self.aux_lstm = nn.LSTM(features_dim, features_dim, batch_first=True)
+        self.lstm = nn.LSTM(features_dim * 2, features_dim, batch_first=True)
 
         self.extra_pred_dim = extra_pred_dim
         self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
@@ -373,7 +390,7 @@ class CustomContinuousCritic(BaseModel):
 
         extra_pred = None
         if self.extra_pred_dim:
-            extra_pred = self.extra_pred(features)
+            extra_pred = self.extra_pred(self._latest_aux_out)
             if self.extra_pred_dim == 7:
                 extra_pred = th.cat(
                     (F.normalize(extra_pred[..., :4], p=2, dim=-1), extra_pred[..., 4:]), dim=-1
@@ -389,7 +406,7 @@ class CustomContinuousCritic(BaseModel):
                 )
             else:
                 raise NotImplementedError
-        target_pred = self.target_pred(features)
+        target_pred = self.target_pred(self._latest_aux_out)
 
         q_vals = tuple(q_net(qvalue_input) for q_net in self.q_networks)
         return q_vals, extra_pred, target_pred
