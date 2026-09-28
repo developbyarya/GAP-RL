@@ -378,10 +378,19 @@ class CustomContinuousCritic(BaseModel):
                     flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
                     
             flat_obs_pre = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
-            flat_feat = self.features_extractor(flat_obs_pre)
             
-            seq = flat_feat.view(batch_size, n_stack, -1)
-        lstm_out, _ = self.lstm(seq)
+            # Aux Trunk
+            flat_feat_aux = self.aux_features_extractor(flat_obs_pre)
+            seq_aux = flat_feat_aux.view(batch_size, n_stack, -1)
+            aux_lstm_out, _ = self.aux_lstm(seq_aux)
+            self._latest_aux_out = aux_lstm_out[:, -1, :]
+            
+            # RL Trunk
+            flat_feat = self.features_extractor(flat_obs_pre)
+            seq_rl = flat_feat.view(batch_size, n_stack, -1)
+            
+        combined_seq = th.cat([seq_rl, seq_aux.detach()], dim=-1)
+        lstm_out, _ = self.lstm(combined_seq)
         return lstm_out[:, -1, :]
 
     def forward(self, obs: th.Tensor, actions: th.Tensor):
