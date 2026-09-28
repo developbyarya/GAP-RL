@@ -231,7 +231,7 @@ class CustomActor(Actor):
         nn.init.constant_(self.extra_pred.bias, 0)
         self.extra_pred_dim = extra_pred_dim
 
-        self.target_pred = nn.Linear(last_layer_dim, 4)
+        self.target_pred = nn.Linear(features_dim, 4)
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
