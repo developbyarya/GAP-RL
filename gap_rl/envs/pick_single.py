@@ -522,16 +522,18 @@ class PickSingleEnv(BaseEnv):
             x, y, z = obj_rot_mat[:, 0], obj_rot_mat[:, 1], obj_rot_mat[:, 2]
             # angle between tcp & xy plane
             vec_z_dot = np.dot(obj_tcp_vec, z)
-            theta = np.pi / 2 - np.arccos(vec_z_dot / dist)
+            dist_safe = dist + 1e-6
+            theta = np.pi / 2 - np.arccos(np.clip(vec_z_dot / dist_safe, -1.0, 1.0))
 
             obj_tcp_vec_proj_z = vec_z_dot * z
             obj_tcp_vec_proj_xy = obj_tcp_vec - obj_tcp_vec_proj_z
-            dist_xy = np.linalg.norm(obj_tcp_vec_proj_xy) + 0.001
+            dist_xy = np.linalg.norm(obj_tcp_vec_proj_xy) + 1e-6
             vecxy_x_dot = np.dot(obj_tcp_vec_proj_xy, x)
+            val = np.clip(vecxy_x_dot / dist_xy, -1.0, 1.0)
             if np.dot(obj_tcp_vec_proj_xy, y) > 0:
-                phi = np.pi - np.arccos(vecxy_x_dot / dist_xy)
+                phi = np.pi - np.arccos(val)
             else:
-                phi = np.arccos(vecxy_x_dot / dist_xy) - np.pi
+                phi = np.arccos(val) - np.pi
 
             phi_min, phi_max = -180, 180 * 5 / 6
             phi_d = (phi_max - phi_min) // 11
@@ -540,6 +542,9 @@ class PickSingleEnv(BaseEnv):
             theta_min, theta_max = 10, 80
             theta_d = (theta_max - theta_min) // 5
             theta_t = (theta / np.pi * 180 - theta_min) / theta_d  # [0, 5)
+            
+            if np.isnan(phi_t): phi_t = 0.0
+            if np.isnan(theta_t): theta_t = 0.0
 
             if self.grasp_select_mode == "nearest":
                 phi_id = round(phi_t) % 12
@@ -1019,10 +1024,22 @@ class PickSingleEnv(BaseEnv):
         self.step_action(action)
         self._elapsed_steps += 1
         obs = self.get_obs(action)
+        
+        has_nan = False
+        for k, v in obs.items():
+            if np.isnan(v).any() or np.isinf(v).any():
+                has_nan = True
+                obs[k] = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+                
         info = self.get_info(obs=obs)
         reward = self.get_reward(obs=obs, action=action, info=info)
         info.update(self._cache_info)
         done = self.get_done(obs=obs, info=info)
+        
+        if has_nan:
+            done = True
+            reward = 0.0
+            
         return obs, reward, done, info
 
     def _after_simulation_step(self, sim_step):
