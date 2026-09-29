@@ -18,12 +18,11 @@ from gap_rl.utils.sapien_utils import look_at
 def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True):
     env = PickSingleGraspnetEnv(
         model_ids=["035"],
-        obs_mode="state_egopoints",
+        obs_mode="state",
         control_mode="pd_ee_delta_pose_euler",
         render_mode="cameras",
         num_grasps=40,
         num_grasp_points=3,
-        grasp_points_mode="bezier2d",
         obj_init_rot_z=False,
         obj_init_rot=True,
         robot_x_offset=0,
