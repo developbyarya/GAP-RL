@@ -1892,17 +1892,21 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         import json
         from collections import OrderedDict
         asset_root = Path(self.DEFAULT_ASSET_ROOT.format(ASSET_DIR="gap_rl/data"))
-        # We need to manually load the lg_grasps from the JSON.
-        lg_json = asset_root / self.DEFAULT_LOCALGRASP_JSON
-        if not lg_json.exists():
-            raise FileNotFoundError(f"{lg_json} is not found. Please run gen_LoG_grasps.py first!")
         
-        with open(lg_json, 'r') as f:
-            lg_db = json.load(f)
-            
+        obs_mode = kwargs.get("obs_mode", "state")
         all_lg_grasps = OrderedDict()
-        for model_id in kwargs.get("model_ids", []):
-            all_lg_grasps[model_id] = lg_db[model_id]["grasp"]
+        
+        if obs_mode in ["state_egopoints", "state_grasp9d", "state_grasp_obj_points"]:
+            lg_json = asset_root / self.DEFAULT_LOCALGRASP_JSON
+            if not lg_json.exists():
+                raise FileNotFoundError(f"{lg_json} is not found. Please run gen_LoG_grasps.py first!")
+            
+            with open(lg_json, 'r') as f:
+                lg_db = json.load(f)
+                
+            for model_id in kwargs.get("model_ids", []):
+                all_lg_grasps[model_id] = lg_db.get(model_id, {}).get("grasp", [])
+                
         self.all_lg_grasps = all_lg_grasps
         super().__init__(**kwargs)
 
