@@ -25,7 +25,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
         robot="ur5e_robotiq85_old",
         model_ids=["035"],
         obj_init_rot_z=False,
-        obs_mode="state",
+        obs_mode="state_egopoints",
         reward_mode="dense",
         control_mode="pd_ee_delta_pose",
         sim_freq=150,
