@@ -23,7 +23,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
         "PickSingleGraspnet-v0",
         shader_dir="ibl",
         robot="ur5e_robotiq85_old",
-        model_ids=["035"],
+        model_ids=model_ids,
         obj_init_rot_z=False,
         obs_mode="state_egopoints",
         reward_mode="dense",
