@@ -119,6 +119,17 @@ class UR5eRobotiq85oldDefaultConfig:
                 actor_uid="camera_hand_link",
                 hide_link=False,
             ),  # sapien camera config
+            CameraConfig(
+                uid="data_cam",
+                p=[0.0, 0.0, 0.0],
+                q=[1, 0, 0, 0],
+                width=640,
+                height=360,
+                fov=1.0,
+                near=0.01,
+                far=5,
+                hide_link=False,
+            ),
             # StereoDepthCameraConfig(
             #     uid="hand_stereo",
             #     p=[0.0, 0.0, 0.0],
