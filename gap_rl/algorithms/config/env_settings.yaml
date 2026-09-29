@@ -18,3 +18,7 @@ acronym_eval:
 egad_eval:
   model_ids: [A0, A3, A6, C0, C3, C6, E0, E3, E6]
   env_id: PickSingleEGAD-v0
+graspnet_train:
+  model_ids: ['035', '038', '041', '043', '045', '046',
+              '048', '055', '057', '063', '070']
+  env_id: PickSingleGraspnet-v0

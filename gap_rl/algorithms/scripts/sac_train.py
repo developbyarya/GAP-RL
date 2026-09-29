@@ -64,8 +64,8 @@ if __name__ == "__main__":
     env_cfg_file = ALGORITHM_DIR / f"config/env_settings.yaml"
     with open(env_cfg_file, "r", encoding="utf-8") as fin:
         env_cfg = yaml.load(fin, Loader=yaml.FullLoader)
-    env_id = env_cfg["ycb_train"]["env_id"]
-    model_ids = env_cfg["ycb_train"]["model_ids"]
+    env_id = env_cfg["graspnet_train"]["env_id"]
+    model_ids = env_cfg["graspnet_train"]["model_ids"]
 
     seed = np.random.RandomState().randint(2**32)
     print("experiment random seed: ", seed)
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # Create log dir
     lstm_str = "_lstm" if args.use_lstm else ""
     vary_str = "vary" if cfg["vary_speed"] else "fix"
-    exp_suffix = f"YCB{len(model_ids)}_{cfg['num_grasps']}_{cfg['gen_traj_mode']}_{vary_str}_{args.exp_suffix}{lstm_str}"
+    exp_suffix = f"GraspNet{len(model_ids)}_{cfg['num_grasps']}_{cfg['gen_traj_mode']}_{vary_str}_{args.exp_suffix}{lstm_str}"
     time_stamp = args.timestamp if args.timestamp is not None else time.strftime("%Y%m%d_%H%M%S", time.localtime())
     log_dir = f"{time_stamp}_sac{cfg['train_procs']}_{cfg['obs_mode']}_{cfg['control_mode']}_{exp_suffix}"
     cfg["log_dir"] = log_dir
