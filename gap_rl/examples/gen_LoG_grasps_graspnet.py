@@ -123,7 +123,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
             
         model_grasps[model_id]["grasp"] = obj_grasps_list
         
-    dump_json(vis_dir + grasp_file, model_grasps)
+    dump_json(str(vis_dir) + grasp_file, model_grasps)
     print(f"Generated {grasp_file} in {vis_dir}")
 
 if __name__ == "__main__":
