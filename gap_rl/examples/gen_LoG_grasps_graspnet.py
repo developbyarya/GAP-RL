@@ -12,7 +12,7 @@ import gym
 
 from gap_rl.envs.pick_single import PickSingleGraspnetEnv
 from gap_rl.localgrasp.LoG import lg_parse, LgNet, GraspGroup
-from gap_rl.utils.geometry import homo_transfer, transform_points, sample_grasp_points_ee
+from gap_rl.utils.geometry import homo_transfer, transform_points, sample_grasp_points_ee, pointcloud_filter, pc_bbdx_filter
 from gap_rl.utils.io_utils import load_json, dump_json
 from gap_rl.utils.sapien_utils import look_at
 import gap_rl.utils.registration
@@ -63,8 +63,24 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
             data_cam_pose = look_at(eye=pos_it, target=sample_poscenter, up=[0, 0, 1])
             env.unwrapped._cameras["data_cam"].camera.set_pose(data_cam_pose)
             
-            obs = env.unwrapped.get_state_objpoints_rt(action=None)
-            obj_pc_ee, scene_pc_ee = obs["obj_pc_ee"], obs["scene_pc_ee"]
+            cam = env.unwrapped._cameras["data_cam"]
+            env.unwrapped.update_render()
+            cam.take_picture()
+            trans_cam2world = cam.camera.get_model_matrix()
+            cam_pc = cam.get_camera_pcd(rgb=False, visual_seg=False, actor_seg=False)['xyz']
+            trans_world2ee = env.unwrapped.trans_cam2ee @ np.linalg.inv(trans_cam2world)
+            scene_pc = transform_points(trans_cam2world, cam_pc)
+            
+            ground_ws = ([-0.5, 0.5], [-0.5, 0.5], [-0.0001, 0.5])
+            scene_pc, mask = pointcloud_filter(scene_pc, ground_ws)
+            scenepcee = transform_points(trans_world2ee, scene_pc)
+            
+            obj_bbdx_v = env.unwrapped.obj_bbdx.vertices
+            trans_world2obj = env.unwrapped.obj_pose.inv().to_transformation_matrix()
+            scene_pc_obj = transform_points(trans_world2obj, scene_pc)
+            _, mask = pc_bbdx_filter(scene_pc_obj, obj_bbdx_v)
+            obj_pc_ee = scenepcee[mask]
+            scene_pc_ee = scenepcee
             
             if obj_pc_ee.shape[0] < 64:
                 obj_grasps_list.append(None)
