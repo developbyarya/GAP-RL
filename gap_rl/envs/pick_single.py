@@ -1890,8 +1890,9 @@ class PickSingleGraspnetEnv(PickSingleEnv):
     def __init__(self, **kwargs):
         from pathlib import Path
         import json
+        from gap_rl import format_path
         from collections import OrderedDict
-        asset_root = Path(self.DEFAULT_ASSET_ROOT.format(ASSET_DIR="gap_rl/data"))
+        asset_root = Path(format_path(self.DEFAULT_ASSET_ROOT))
         
         obs_mode = kwargs.get("obs_mode", "state")
         all_lg_grasps = OrderedDict()
