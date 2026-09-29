@@ -8,30 +8,35 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 from tqdm import tqdm
 from sapien.core import Pose
+import gym
 
 from gap_rl.envs.pick_single import PickSingleGraspnetEnv
 from gap_rl.localgrasp.LoG import lg_parse, LgNet, GraspGroup
 from gap_rl.utils.geometry import homo_transfer, transform_points, sample_grasp_points_ee
 from gap_rl.utils.io_utils import load_json, dump_json
 from gap_rl.utils.sapien_utils import look_at
+import gap_rl.utils.registration
 
 def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True):
-    env = PickSingleGraspnetEnv(
+    # Using gym.make to properly route all kwargs through the registry
+    env = gym.make(
+        "PickSingleGraspnet-v0",
+        shader_dir="ibl",
+        robot="ur5e_robotiq85_old",
         model_ids=["035"],
-        obs_mode="state",
-        control_mode="pd_ee_delta_pose_euler",
-        render_mode="cameras",
-        num_grasps=40,
-        num_grasp_points=3,
         obj_init_rot_z=False,
-        obj_init_rot=True,
+        obs_mode="state",
+        reward_mode="dense",
+        control_mode="pd_ee_delta_pose",
+        sim_freq=150,
+        control_freq=5,
+        gen_traj_mode="line",
+        vary_speed=True,
         robot_x_offset=0,
-        use_stereo=stereo,
-        cam_width=640,
-        cam_height=360,
     )
+
     env.reset()
-    vis_dir = env.asset_root
+    vis_dir = env.unwrapped.asset_root
     
     args = lg_parse()
     args.checkpoint_path = "../localgrasp/checkpoints/LoG_0.1_simLoG.tar"
@@ -40,25 +45,23 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
     model_grasps = {model_id: {} for model_id in model_ids}
     
     for model_id in model_ids:
-        env.model_id = model_id
-        env._load_actors()
-        env.reset()
+        env.reset(model_id=model_id)
         
         obj_grasps_list = []
         for ind in tqdm(range(72)):
-            env.obj.set_pose(Pose())
+            env.unwrapped.obj.set_pose(Pose())
             angle = (ind % 72) * 5 / 180 * np.pi
-            env.obj.set_pose(Pose(p=env.goal_pos, q=[np.cos(angle / 2), 0, 0, np.sin(angle / 2)]))
-            env._scene.step()
+            env.unwrapped.obj.set_pose(Pose(p=env.unwrapped.goal_pos, q=[np.cos(angle / 2), 0, 0, np.sin(angle / 2)]))
+            env.unwrapped._scene.step()
             
-            sample_cam_z = env.goal_pos[2] + 0.3
-            sample_poscenter = [env.goal_pos[0], env.goal_pos[1], env.goal_pos[2]]
+            sample_cam_z = env.unwrapped.goal_pos[2] + 0.3
+            sample_poscenter = [env.unwrapped.goal_pos[0], env.unwrapped.goal_pos[1], env.unwrapped.goal_pos[2]]
             pos_it = [sample_poscenter[0], sample_poscenter[1], sample_cam_z]
             
             data_cam_pose = look_at(eye=pos_it, target=sample_poscenter, up=[0, 0, 1])
             env.unwrapped._cameras["data_cam"].camera.set_pose(data_cam_pose)
             
-            obs = env.get_state_objpoints_rt(action=None)
+            obs = env.unwrapped.get_state_objpoints_rt(action=None)
             obj_pc_ee, scene_pc_ee = obs["obj_pc_ee"], obs["scene_pc_ee"]
             
             if obj_pc_ee.shape[0] < 64:
@@ -77,7 +80,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
                 continue
                 
             trans_cam2world = env.unwrapped._cameras["data_cam"].camera.get_model_matrix()
-            trans_world2obj = env.obj_pose.inv().to_transformation_matrix()
+            trans_world2obj = env.unwrapped.obj_pose.inv().to_transformation_matrix()
             trans_ee2obj = trans_world2obj @ trans_cam2world @ np.linalg.inv(env.unwrapped.trans_cam2ee)
             
             T = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])
