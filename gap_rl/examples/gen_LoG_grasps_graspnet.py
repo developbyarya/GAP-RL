@@ -41,7 +41,7 @@ def main(grasp_file, model_ids, stereo=False, vis=False, render=False, save=True
     import argparse
     parser = argparse.ArgumentParser()
     parser = lg_parse(parser)
-    lg_args = parser.parse_args(["--checkpoint_path", "gap_rl/localgrasp/epoch_11_acc_0.915_cover_0.765"])
+    lg_args = parser.parse_args(["--checkpoint-path", "gap_rl/localgrasp/epoch_11_acc_0.915_cover_0.765"])
     lgNet = LgNet(lg_args)
     
     model_grasps = {model_id: {} for model_id in model_ids}
