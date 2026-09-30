@@ -1933,8 +1933,9 @@ class PickSingleGraspnetEnv(PickSingleEnv):
             with open(grasp_json, 'r') as f:
                 grasp_db = json.load(f)
             for model_id in kwargs.get("model_ids", []):
-                grasps = np.array(grasp_db[model_id]["transformations"])
-                all_grasps[model_id] = grasps
+                if model_id in grasp_db:
+                    grasps = np.array(grasp_db[model_id]["transformations"])
+                    all_grasps[model_id] = grasps
         self.all_grasps = all_grasps
         
         super().__init__(**kwargs)
@@ -2002,6 +2003,23 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         if self.obs_mode in ["state_egopoints", "state_grasp9d", "state_grasp_obj_points"]:
             self.lg_grasps_dict = self.all_lg_grasps[self.model_id]
             grasp_views = len(self.lg_grasps_dict)
+            
+            # If dense grasps were missing, use LocalGrasps as fallback
+            if self.grasps_mat is None:
+                all_poses = []
+                for vid in range(grasp_views):
+                    if self.lg_grasps_dict[vid] is not None:
+                        all_poses.extend(self.lg_grasps_dict[vid]['transformations'])
+                if len(all_poses) > 0:
+                    all_poses = np.array(all_poses)
+                    gmats = np.repeat(np.eye(4)[None], all_poses.shape[0], 0)
+                    gmats[:, :3, 3] = all_poses[:, :3]
+                    from scipy.spatial.transform import Rotation
+                    gmats[:, :3, :3] = Rotation.from_quat(all_poses[:, 3:]).as_matrix()
+                    self.grasps_mat = gmats
+                else:
+                    self.grasps_mat = np.zeros((1, 4, 4))
+            
             if self.grasp_select_mode in ["random", "angle_filter"]:
                 lg_grasps_poses = []
                 lg_grasps_scores = []
