@@ -551,7 +551,7 @@ class PickSingleEnv(BaseEnv):
                 theta_id = max(0, min(round(theta_t), 5))
                 grasp_view_ids = [phi_id*6 + theta_id]
             else:
-                phi_ids = [int(phi_t), (int(phi_t) + 1) % 12]
+                phi_ids = [int(phi_t) % 12, (int(phi_t) + 1) % 12]
                 if theta_t <= 0:
                     theta_ids = [0, 1]
                 elif theta_t < 5:
