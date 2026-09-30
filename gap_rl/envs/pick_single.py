@@ -1926,6 +1926,17 @@ class PickSingleGraspnetEnv(PickSingleEnv):
                 all_lg_grasps[model_id] = lg_db.get(model_id, {}).get("grasp", [])
                 
         self.all_lg_grasps = all_lg_grasps
+        
+        all_grasps = OrderedDict()
+        grasp_json = asset_root / self.DEFAULT_GRASP_JSON
+        if grasp_json.exists():
+            with open(grasp_json, 'r') as f:
+                grasp_db = json.load(f)
+            for model_id in kwargs.get("model_ids", []):
+                grasps = np.array(grasp_db[model_id]["transformations"])
+                all_grasps[model_id] = grasps
+        self.all_grasps = all_grasps
+        
         super().__init__(**kwargs)
 
     def _get_init_z(self):
@@ -1977,6 +1988,16 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         self.obj_pc = obj_pc
         self.obj_bbdx = obj_mesh.bounding_box
         self.obj_aabb_halfsize = self.obj_bbdx.extents / 2
+        
+        if self.model_id in self.all_grasps:
+            cur_grasp_poses = self.all_grasps[self.model_id]  # (N, 7)
+            grasp_mats = np.repeat(np.eye(4)[None], cur_grasp_poses.shape[0], 0)
+            grasp_mats[:, :3, 3] = cur_grasp_poses[:, :3]
+            from scipy.spatial.transform import Rotation
+            grasp_mats[:, :3, :3] = Rotation.from_quat(cur_grasp_poses[:, 3:]).as_matrix()
+            self.grasps_mat = grasp_mats  # (N, 4, 4)
+        else:
+            self.grasps_mat = None
 
         if self.obs_mode in ["state_egopoints", "state_grasp9d", "state_grasp_obj_points"]:
             self.lg_grasps_dict = self.all_lg_grasps[self.model_id]
