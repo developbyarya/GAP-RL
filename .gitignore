@@ -479,3 +479,12 @@ fabric.properties
 # Large local datasets (not needed in working tree)
 gap_rl/data/gym-test/
 test_sapien_pts.py
+
+# Training runs & model checkpoints
+runs/
+lstm_result/
+videos/
+20260701_*/
+20260729_*/
+*.zip
+*.tfevents.*
