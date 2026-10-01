@@ -522,18 +522,16 @@ class PickSingleEnv(BaseEnv):
             x, y, z = obj_rot_mat[:, 0], obj_rot_mat[:, 1], obj_rot_mat[:, 2]
             # angle between tcp & xy plane
             vec_z_dot = np.dot(obj_tcp_vec, z)
-            dist_safe = dist + 1e-6
-            theta = np.pi / 2 - np.arccos(np.clip(vec_z_dot / dist_safe, -1.0, 1.0))
+            theta = np.pi / 2 - np.arccos(vec_z_dot / dist)
 
             obj_tcp_vec_proj_z = vec_z_dot * z
             obj_tcp_vec_proj_xy = obj_tcp_vec - obj_tcp_vec_proj_z
-            dist_xy = np.linalg.norm(obj_tcp_vec_proj_xy) + 1e-6
+            dist_xy = np.linalg.norm(obj_tcp_vec_proj_xy) + 0.001
             vecxy_x_dot = np.dot(obj_tcp_vec_proj_xy, x)
-            val = np.clip(vecxy_x_dot / dist_xy, -1.0, 1.0)
             if np.dot(obj_tcp_vec_proj_xy, y) > 0:
-                phi = np.pi - np.arccos(val)
+                phi = np.pi - np.arccos(vecxy_x_dot / dist_xy)
             else:
-                phi = np.arccos(val) - np.pi
+                phi = np.arccos(vecxy_x_dot / dist_xy) - np.pi
 
             phi_min, phi_max = -180, 180 * 5 / 6
             phi_d = (phi_max - phi_min) // 11
@@ -542,16 +540,13 @@ class PickSingleEnv(BaseEnv):
             theta_min, theta_max = 10, 80
             theta_d = (theta_max - theta_min) // 5
             theta_t = (theta / np.pi * 180 - theta_min) / theta_d  # [0, 5)
-            
-            if np.isnan(phi_t): phi_t = 0.0
-            if np.isnan(theta_t): theta_t = 0.0
 
             if self.grasp_select_mode == "nearest":
                 phi_id = round(phi_t) % 12
                 theta_id = max(0, min(round(theta_t), 5))
                 grasp_view_ids = [phi_id*6 + theta_id]
             else:
-                phi_ids = [int(phi_t) % 12, (int(phi_t) + 1) % 12]
+                phi_ids = [int(phi_t), (int(phi_t) + 1) % 12]
                 if theta_t <= 0:
                     theta_ids = [0, 1]
                 elif theta_t < 5:
@@ -1024,22 +1019,10 @@ class PickSingleEnv(BaseEnv):
         self.step_action(action)
         self._elapsed_steps += 1
         obs = self.get_obs(action)
-        
-        has_nan = False
-        for k, v in obs.items():
-            if np.isnan(v).any() or np.isinf(v).any():
-                has_nan = True
-                obs[k] = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
-                
         info = self.get_info(obs=obs)
         reward = self.get_reward(obs=obs, action=action, info=info)
         info.update(self._cache_info)
         done = self.get_done(obs=obs, info=info)
-        
-        if has_nan:
-            done = True
-            reward = 0.0
-            
         return obs, reward, done, info
 
     def _after_simulation_step(self, sim_step):
@@ -1902,43 +1885,6 @@ class PickSingleGraspnetEnv(PickSingleEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_graspnet"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
     DEFAULT_GRASP_JSON = "info_grasp_v0.json"
-    DEFAULT_LOCALGRASP_JSON = "info_localgrasp_v0.json"
-
-    def __init__(self, **kwargs):
-        from pathlib import Path
-        import json
-        from gap_rl import format_path
-        from collections import OrderedDict
-        asset_root = Path(format_path(self.DEFAULT_ASSET_ROOT))
-        
-        obs_mode = kwargs.get("obs_mode", "state")
-        all_lg_grasps = OrderedDict()
-        
-        if obs_mode in ["state_egopoints", "state_grasp9d", "state_grasp_obj_points"]:
-            lg_json = asset_root / self.DEFAULT_LOCALGRASP_JSON
-            if not lg_json.exists():
-                raise FileNotFoundError(f"{lg_json} is not found. Please run gen_LoG_grasps.py first!")
-            
-            with open(lg_json, 'r') as f:
-                lg_db = json.load(f)
-                
-            for model_id in kwargs.get("model_ids", []):
-                all_lg_grasps[model_id] = lg_db.get(model_id, {}).get("grasp", [])
-                
-        self.all_lg_grasps = all_lg_grasps
-        
-        all_grasps = OrderedDict()
-        grasp_json = asset_root / self.DEFAULT_GRASP_JSON
-        if grasp_json.exists():
-            with open(grasp_json, 'r') as f:
-                grasp_db = json.load(f)
-            for model_id in kwargs.get("model_ids", []):
-                if model_id in grasp_db:
-                    grasps = np.array(grasp_db[model_id]["transformations"])
-                    all_grasps[model_id] = grasps
-        self.all_grasps = all_grasps
-        
-        super().__init__(**kwargs)
 
     def _get_init_z(self):
         return self.obj_aabb_halfsize[2]
@@ -1989,58 +1935,6 @@ class PickSingleGraspnetEnv(PickSingleEnv):
         self.obj_pc = obj_pc
         self.obj_bbdx = obj_mesh.bounding_box
         self.obj_aabb_halfsize = self.obj_bbdx.extents / 2
-        
-        if self.model_id in self.all_grasps:
-            cur_grasp_poses = self.all_grasps[self.model_id]  # (N, 7)
-            grasp_mats = np.repeat(np.eye(4)[None], cur_grasp_poses.shape[0], 0)
-            grasp_mats[:, :3, 3] = cur_grasp_poses[:, :3]
-            from scipy.spatial.transform import Rotation
-            grasp_mats[:, :3, :3] = Rotation.from_quat(cur_grasp_poses[:, 3:]).as_matrix()
-            self.grasps_mat = grasp_mats  # (N, 4, 4)
-        else:
-            self.grasps_mat = None
-
-        if self.obs_mode in ["state_egopoints", "state_grasp9d", "state_grasp_obj_points"]:
-            self.lg_grasps_dict = self.all_lg_grasps[self.model_id]
-            grasp_views = len(self.lg_grasps_dict)
-            
-            # If dense grasps were missing, use LocalGrasps as fallback
-            if self.grasps_mat is None:
-                all_poses = []
-                for vid in range(grasp_views):
-                    if self.lg_grasps_dict[vid] is not None:
-                        all_poses.extend(self.lg_grasps_dict[vid]['transformations'])
-                if len(all_poses) > 0:
-                    all_poses = np.array(all_poses)
-                    gmats = np.repeat(np.eye(4)[None], all_poses.shape[0], 0)
-                    gmats[:, :3, 3] = all_poses[:, :3]
-                    from scipy.spatial.transform import Rotation
-                    gmats[:, :3, :3] = Rotation.from_quat(all_poses[:, 3:]).as_matrix()
-                    self.grasps_mat = gmats
-                else:
-                    self.grasps_mat = np.zeros((1, 4, 4))
-            
-            if self.grasp_select_mode in ["random", "angle_filter"]:
-                lg_grasps_poses = []
-                lg_grasps_scores = []
-                for grasp_view_id in range(grasp_views):
-                    if self.lg_grasps_dict[grasp_view_id] is not None:
-                        transformations = self.lg_grasps_dict[grasp_view_id]['transformations']
-                        lg_grasps_poses.extend(transformations)
-                        scores = self.lg_grasps_dict[grasp_view_id]['scores']
-                        lg_grasps_scores.extend(scores)
-                if len(lg_grasps_poses) > 0:
-                    lg_grasps_poses = np.array(lg_grasps_poses)
-                    grasp_mats = np.repeat(np.eye(4)[None], lg_grasps_poses.shape[0], 0)
-                    grasp_mats[:, :3, 3] = lg_grasps_poses[:, :3]
-                    from scipy.spatial.transform import Rotation
-                    grasp_mats[:, :3, :3] = Rotation.from_quat(lg_grasps_poses[:, 3:]).as_matrix()
-                    self.lg_grasps_mat = grasp_mats
-                    self.lg_grasps_score = np.array(lg_grasps_scores)
-                else:
-                    self.lg_grasps_mat = np.zeros((0, 4, 4))
-                    self.lg_grasps_score = np.zeros(0)
-
 
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
