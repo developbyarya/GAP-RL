@@ -35,7 +35,7 @@ class TokenSelfAttention(nn.Module):
         pn_feature = features_extractor_out[:, -256:] # (batch, 256)
         tcp_pose = obs_t["tcp_pose"] # (batch, 6)
         gripper_pos = obs_t["gripper_pos"] # (batch, 2)
-        action = obs_t["action"] # (batch, 7)
+        action = obs_t["prev_action"] # (batch, 7)
         grasp_exist = obs_t["grasp_exist"] # (batch, 5)
         
         # Project each component to d_attn

@@ -93,6 +93,21 @@ class FrameStackWrapper(VecEnvWrapper):
             stacked.append(self._build_obs(i, single))
         return _stack_dicts(stacked)
 
+    def _build_terminal_obs(self, env_idx: int, terminal_obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """
+        Window for the true terminal observation o_T: the last (n_stack-1) frames of the
+        finished episode followed by o_T. Needed because SB3 stores it as `next_obs`
+        (infos[i]["terminal_observation"]) for the final transition of an episode.
+        """
+        out = {}
+        for k, v in terminal_obs.items():
+            if k in self.stack_keys:
+                frames = list(self._history[env_idx][k])[1:] + [v]
+                out[k] = np.stack(frames, axis=0)
+            else:
+                out[k] = v
+        return out
+
     def step_wait(self):
         obs, rewards, dones, infos = self.venv.step_wait()  # gym==0.21 4-tuple
         stacked = []
@@ -101,6 +116,9 @@ class FrameStackWrapper(VecEnvWrapper):
             if dones[i]:
                 # VecEnv auto-resets on done: this `obs` is already the fresh
                 # reset observation, so re-seed the window rather than push
+                terminal_obs = infos[i].get("terminal_observation")
+                if terminal_obs is not None:
+                    infos[i]["terminal_observation"] = self._build_terminal_obs(i, terminal_obs)
                 self._init_history(i, single)
             else:
                 self._push(i, single)
@@ -176,6 +194,81 @@ def _stack_dicts(list_of_dicts: List[Dict[str, np.ndarray]]) -> Dict[str, np.nda
     return {k: np.stack([d[k] for d in list_of_dicts], axis=0) for k in keys}
 
 
+# ============================================================================
+# 1b. Per-frame / temporal boundary helpers
+#
+#   o[t-k+1..t] --(per-frame GGN/State extractor)--> z[t-k+1..t] --(LSTM)--> h_t
+#
+# The features_extractor only ever sees ONE frame; all temporal reasoning is in
+# TemporalEncoder. Actor and Critic share these helpers instead of duplicating them.
+# ============================================================================
+class TemporalEncoder(nn.Module):
+    """
+    Windowed recurrent encoder: [batch, time, features] -> h_t [batch, hidden_dim].
+
+    The LSTM state is NOT persistent across calls: every forward re-encodes the whole
+    window from a zero state (matches the replay-buffer windows of FrameStackWrapper).
+    """
+
+    def __init__(self, features_dim: int, hidden_dim: Optional[int] = None, num_layers: int = 1):
+        super().__init__()
+        hidden_dim = hidden_dim or features_dim
+        self.lstm = nn.LSTM(
+            input_size=features_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+        )
+        self.output_dim = hidden_dim
+
+    def forward(self, sequence: th.Tensor) -> th.Tensor:
+        """sequence: [batch, time, features] -> representation at the current (last) timestep."""
+        lstm_out, _ = self.lstm(sequence)
+        return lstm_out[:, -1, :]
+
+
+def validate_stack_keys(observation_space: spaces.Dict, stack_keys: List[str]) -> None:
+    """
+    Every per-frame observation (GGN input AND robot state / prev_action / grasp_exist)
+    must be temporal. Only AUX_OBS_KEYS (supervision targets) may stay unstacked.
+    """
+    missing = [
+        k for k in observation_space.spaces.keys()
+        if k not in AUX_OBS_KEYS and k not in stack_keys
+    ]
+    if missing:
+        raise ValueError(
+            f"Observation keys {missing} are consumed per-frame but are not in stack_keys; "
+            f"they would be frozen to the current step while the rest of the window moves."
+        )
+
+
+def extract_frame_sequence(
+    features_extractor: nn.Module,
+    obs: Dict[str, th.Tensor],
+    stack_keys: List[str],
+    orig_observation_space: spaces.Dict,
+    normalize_images: bool,
+) -> th.Tensor:
+    """
+    Stacked obs  (batch, n_stack, *orig_shape)  ->  per-frame features  [batch, n_stack, features_dim].
+
+    Equivalent to running `features_extractor(obs_t)` for t = 0..n_stack-1 and stacking, but
+    folds time into the batch axis so the (GGN) extractor is launched once instead of n_stack
+    times. Every frame goes through preprocess_obs against the UNSTACKED observation space.
+    """
+    batch_size, n_stack = obs[stack_keys[0]].shape[:2]
+
+    flat_obs = {}
+    for k, v in obs.items():
+        if k in stack_keys:
+            flat_obs[k] = v.reshape(batch_size * n_stack, *v.shape[2:])
+        else:
+            flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
+
+    flat_obs = preprocess_obs(flat_obs, orig_observation_space, normalize_images=normalize_images)
+    flat_feat = features_extractor(flat_obs)  # (batch * n_stack, features_dim)
+    return flat_feat.view(batch_size, n_stack, -1)
 
 
 # ============================================================================
@@ -218,11 +311,18 @@ class CustomActor(Actor):
         )
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
+        validate_stack_keys(orig_observation_space, stack_keys)
 
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
         self.use_lstm = use_lstm
-        lstm_input_dim = features_dim
-        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
+        # Temporal encoder: z[t-k+1..t] -> h_t. hidden_dim == features_dim because
+        # SB3's latent_pi MLP was built against `features_dim`.
+        self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
+
+        # Auxiliary heads read latent_pi (output of the policy MLP, width = last_layer_dim):
+        #   GGN -> LSTM -> h_t -> latent_pi -+-> mu / log_std (actor)
+        #                                    +-> extra_pred (grasp-pose goal)
+        #                                    +-> target_pred (eval target)
         self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
@@ -232,32 +332,23 @@ class CustomActor(Actor):
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
+    def _extract_sequence(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
+        """Stacked obs (batch, n_stack, ...) -> per-frame features z: [batch, n_stack, features_dim]."""
+        return extract_frame_sequence(
+            self.features_extractor,
+            obs,
+            self.stack_keys,
+            self.orig_observation_space,
+            self.normalize_images,
+        )
+
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
-        """
-        obs[key] for key in stack_keys has shape (batch, n_stack, *orig_shape).
-        Slice each timestep, run the per-frame features_extractor, LSTM over the
-        real sequence.
-        """
-        n_stack = obs[self.stack_keys[0]].shape[1]
-        batch_size = obs[self.stack_keys[0]].shape[0]
-        
-        flat_obs = {}
-        for k, v in obs.items():
-            if k in self.stack_keys:
-                flat_obs[k] = v.reshape(batch_size * n_stack, *v.shape[2:])
-            else:
-                flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
-                
-        flat_obs_pre = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
-        flat_feat = self.features_extractor(flat_obs_pre)
-        
-        seq = flat_feat.view(batch_size, n_stack, -1)
-        lstm_out, _ = self.lstm(seq)
-        return lstm_out[:, -1, :]
+        """h_t = LSTM(z_{t-k+1}, ..., z_t)"""
+        return self.temporal_encoder(self._extract_sequence(obs))
 
     def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
-        features = self._extract_windowed_features(obs)
-        latent_pi = self.latent_pi(features)
+        h_t = self._extract_windowed_features(obs)
+        latent_pi = self.latent_pi(h_t)
         mean_actions = self.mu(latent_pi)
 
         if self.use_sde:
@@ -326,6 +417,7 @@ class CustomContinuousCritic(BaseModel):
         action_dim = get_action_dim(self.action_space)
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
+        validate_stack_keys(orig_observation_space, stack_keys)
 
         self.share_features_extractor = share_features_extractor
         self.n_critics = n_critics
@@ -337,8 +429,9 @@ class CustomContinuousCritic(BaseModel):
             self.q_networks.append(q_net)
 
         self.use_lstm = use_lstm
-        lstm_input_dim = features_dim
-        self.lstm = nn.LSTM(lstm_input_dim, features_dim, batch_first=True)
+        # h_t = LSTM(z_{t-k+1..t}); Q_i = Q_i(h_t, a_t).
+        # The window contains a_{t-1} (obs["prev_action"]); a_t is the Critic's `actions` input.
+        self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
 
         self.extra_pred_dim = extra_pred_dim
         self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
@@ -349,23 +442,21 @@ class CustomContinuousCritic(BaseModel):
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
-    def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
-        n_stack = obs[self.stack_keys[0]].shape[1]
+    def _extract_sequence(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
+        """Stacked obs (batch, n_stack, ...) -> per-frame features z: [batch, n_stack, features_dim]."""
+        # A shared extractor is owned/updated by the actor, so no grad through it from the critic.
         with th.set_grad_enabled(not self.share_features_extractor):
-            batch_size = obs[self.stack_keys[0]].shape[0]
-            flat_obs = {}
-            for k, v in obs.items():
-                if k in self.stack_keys:
-                    flat_obs[k] = v.reshape(batch_size * n_stack, *v.shape[2:])
-                else:
-                    flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
-                    
-            flat_obs_pre = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
-            flat_feat = self.features_extractor(flat_obs_pre)
-            
-            seq = flat_feat.view(batch_size, n_stack, -1)
-        lstm_out, _ = self.lstm(seq)
-        return lstm_out[:, -1, :]
+            return extract_frame_sequence(
+                self.features_extractor,
+                obs,
+                self.stack_keys,
+                self.orig_observation_space,
+                self.normalize_images,
+            )
+
+    def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
+        """h_t = LSTM(z_{t-k+1}, ..., z_t)"""
+        return self.temporal_encoder(self._extract_sequence(obs))
 
     def forward(self, obs: th.Tensor, actions: th.Tensor):
         features = self._extract_windowed_features(obs)

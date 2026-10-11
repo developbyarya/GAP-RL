@@ -159,7 +159,7 @@ class CustomGraspPointExtractor(BaseFeaturesExtractor):
     def forward(self, observations) -> torch.Tensor:
         gripper_pos = observations["gripper_pos"]  # (N, 2)
         ee_pose_base = observations["tcp_pose"]  # (N, 6)
-        action = observations["action"]  # (N, 7)
+        prev_action = observations["prev_action"]  # (N, 7), a_{t-1}
         grasp_exist = observations["grasp_exist"]  # (N, 5)
         gripper_pts_diff = observations["gripper_pts_diff"]  # (N, ng, k, 3)
         bs, ng, k, _ = gripper_pts_diff.shape
@@ -170,13 +170,22 @@ class CustomGraspPointExtractor(BaseFeaturesExtractor):
             gripper_pts_diff.transpose(2, 1).contiguous()
         )  # (N, 256)
         ## other state
-        state = torch.cat([ee_pose_base, gripper_pos, action, grasp_exist], dim=1)
+        state = torch.cat([ee_pose_base, gripper_pos, prev_action, grasp_exist], dim=1)
         state_feature = self.state_map(state)
 
         return torch.cat((state_feature, pn_feature), dim=1)
 
 
 class CustomGraspPointGroupExtractor(BaseFeaturesExtractor):
+    """
+    Strictly PER-FRAME encoder (no temporal processing, no LSTM here):
+
+        z_t = [State(o_t) (128), GGN(o_t) (256)]    -> features_dim = 384
+
+    The temporal encoder (LSTM) lives in the Actor / Critic (see custom_sac.TemporalEncoder)
+    and consumes the sequence z_{t-k+1..t} produced by this module.
+    """
+
     def __init__(
             self,
             observation_space: gym.spaces.Dict,
@@ -192,29 +201,32 @@ class CustomGraspPointGroupExtractor(BaseFeaturesExtractor):
             group_mlp_specs=[64, 256],
         ).to(torch.device(device))
         self.gpcg.train()
+        # tcp_pose(6) + gripper_pos(2) + prev_action(7) + grasp_exist(5) = 20
         state_input_dim = 23 if group_center_cat else 20
-        self.state_map = torch.nn.Linear(state_input_dim, 128, bias=True).to(torch.device(device))
-        torch.nn.init.xavier_uniform_(self.state_map.weight, gain=1)
-        torch.nn.init.constant_(self.state_map.bias, 0)
+        state_linear = torch.nn.Linear(state_input_dim, 128, bias=True)
+        torch.nn.init.xavier_uniform_(state_linear.weight, gain=1)
+        torch.nn.init.constant_(state_linear.bias, 0)
+        self.state_map = torch.nn.Sequential(state_linear, torch.nn.ReLU()).to(torch.device(device))
         self.state_map.train()
 
         # Update the features dim manually
         self._features_dim = 256 + 128
 
     def forward(self, observations) -> torch.Tensor:
-        gripper_pos = observations["gripper_pos"]  # (N, 2)
-        ee_pose_base = observations["tcp_pose"]  # (N, 6)
-        action = observations["action"]  # (N, 7)
-        grasp_exist = observations["grasp_exist"]  # (N, 5)
+        # ---- 1. spatial grasp feature (GGN) ----
         origin_gripper_pts = observations["origin_gripper_pts"]  # (N, k, 3)
         gripper_pts_diff = observations["gripper_pts_diff"]  # (N, ng, k, 3)
-        bs, ng, k, _ = gripper_pts_diff.shape
-
-        ## other state
-        state = torch.cat([ee_pose_base, gripper_pos, action, grasp_exist], dim=1)
         pn_feature = self.gpcg(origin_gripper_pts, gripper_pts_diff)  # (N, 256)
-        state_feature = self.state_map(state)
 
+        # ---- 2. robot / auxiliary state of the SAME frame ----
+        gripper_pos = observations["gripper_pos"]  # (N, 2)
+        ee_pose_base = observations["tcp_pose"]  # (N, 6)
+        prev_action = observations["prev_action"]  # (N, 7), a_{t-1} (zeros at episode start)
+        grasp_exist = observations["grasp_exist"]  # (N, 5)
+        state = torch.cat([ee_pose_base, gripper_pos, prev_action, grasp_exist], dim=1)
+        state_feature = self.state_map(state)  # (N, 128)
+
+        # ---- 3. per-frame representation z_t ----
         return torch.cat((state_feature, pn_feature), dim=1)
 
 
@@ -245,7 +257,7 @@ class CustomStateObjPNExtractor(BaseFeaturesExtractor):
     def forward(self, observations) -> torch.Tensor:
         gripper_pos = observations["gripper_pos"]  # (N, 2)
         ee_pose_base = observations["tcp_pose"]  # (N, 6)
-        action = observations["action"]  # (N, 7)
+        prev_action = observations["prev_action"]  # (N, 7), a_{t-1}
         obj_pc_ee = observations["obj_pc_ee"]  # (N, 256, 3)
         gripper_pad_pts_ee = observations["gripper_pad_pts_ee"]  # (N, 40, 3)
         bs = gripper_pos.shape[0]
@@ -261,7 +273,7 @@ class CustomStateObjPNExtractor(BaseFeaturesExtractor):
             obj_pad_pc_cls.transpose(2, 1).contiguous()
         )  # (N, 256)
         ## other state
-        state = torch.cat([ee_pose_base, gripper_pos, action], dim=1)
+        state = torch.cat([ee_pose_base, gripper_pos, prev_action], dim=1)
         state_feature = self.state_map(state)
 
         return torch.cat((state_feature, pn_feature), dim=1)
@@ -288,14 +300,14 @@ class CustomObjPNExtractor(BaseFeaturesExtractor):
         self._features_dim = 256
 
     def forward(self, observations) -> torch.Tensor:
-        action = observations["action"]  # (N, 7)
+        prev_action = observations["prev_action"]  # (N, 7), a_{t-1}
         tcp_pose = observations["tcp_pose"]  # (N, 6)
         gripper_pos = observations["gripper_pos"]  # (N, 2)
         obj_pc_ee = observations["obj_pc_ee"]  # (N, 256, 3)
         bs, num, _ = obj_pc_ee.shape
 
         ## PointNet to get 256 feat
-        state = torch.cat((tcp_pose, gripper_pos, action), dim=1)  # (N, 15)
+        state = torch.cat((tcp_pose, gripper_pos, prev_action), dim=1)  # (N, 15)
         pn_state = torch.cat((obj_pc_ee, state.unsqueeze(1).repeat(1, num, 1)), dim=2)  # (N, 256, 3+15)
         pn_feature, _, _ = self.pn(
             pn_state.transpose(2, 1).contiguous()
@@ -331,7 +343,7 @@ class CustomGraspExtractor(BaseFeaturesExtractor):
     def forward(self, observations) -> torch.Tensor:
         gripper_pos = observations["gripper_pos"]  # (N, 2)
         ee_pose_base = observations["tcp_pose"]  # (N, 6)
-        action = observations["action"]  # (N, 7)
+        prev_action = observations["prev_action"]  # (N, 7), a_{t-1}
         grasp_exist = observations["grasp_exist"]  # (N, 5)
         grasps_posrot_ee = observations["grasps_posrot_ee"]  # (N, ng, 9)
 
@@ -340,7 +352,7 @@ class CustomGraspExtractor(BaseFeaturesExtractor):
             grasps_posrot_ee.transpose(2, 1).contiguous()
         )  # (N, 256)
         ## other state
-        state = torch.cat([gripper_pos, ee_pose_base, action, grasp_exist], dim=1)
+        state = torch.cat([gripper_pos, ee_pose_base, prev_action, grasp_exist], dim=1)
         state_feature = self.state_map(state)
 
         return torch.cat((state_feature, pn_feature), dim=1)

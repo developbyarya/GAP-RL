@@ -624,7 +624,7 @@ class PickSingleEnv(BaseEnv):
         obs = OrderedDict(
             gripper_pos=agent_qpos[self.agent.gripper_joint_ids].astype(np.float32),
             tcp_pose=np.hstack([cur_ee_pos, cur_ee_euler]).astype(np.float32),
-            action=action.astype(np.float32),
+            prev_action=action.astype(np.float32),  # a_{t-1}: action that produced this observation (zeros at reset)
         )
 
         ### compute current nearest LoG grasps
@@ -681,7 +681,7 @@ class PickSingleEnv(BaseEnv):
         obs = OrderedDict(
             gripper_pos=agent_qpos[self.agent.gripper_joint_ids].astype(np.float32),
             tcp_pose=np.hstack([cur_ee_pos, cur_ee_euler]).astype(np.float32),
-            action=action.astype(np.float32),
+            prev_action=action.astype(np.float32),  # a_{t-1}: action that produced this observation (zeros at reset)
         )
 
         ### compute current nearest LoG grasps
@@ -860,7 +860,7 @@ class PickSingleEnv(BaseEnv):
         cur_ee_pos, cur_ee_quat = self.tcp.pose.p, self.tcp.pose.q
         cur_ee_euler = Rotation.from_quat(np.roll(cur_ee_quat, -1)).as_euler("XYZ")
         obs = OrderedDict(
-            action=action.astype(np.float32),
+            prev_action=action.astype(np.float32),  # a_{t-1}: action that produced this observation (zeros at reset)
             gripper_pos=agent_qpos[self.agent.gripper_joint_ids].astype(np.float32),
             tcp_pose=np.hstack([cur_ee_pos, cur_ee_euler]).astype(np.float32),
         )
@@ -925,7 +925,7 @@ class PickSingleEnv(BaseEnv):
         obs = OrderedDict(
             gripper_pos=agent_qpos[self.agent.gripper_joint_ids].astype(np.float32),
             tcp_pose=np.hstack([cur_ee_pos, cur_ee_euler]).astype(np.float32),
-            action=action.astype(np.float32),
+            prev_action=action.astype(np.float32),  # a_{t-1}: action that produced this observation (zeros at reset)
         )
 
         grasps_ee, grasps_scores = self._compute_near_grasps_rt()
@@ -986,7 +986,7 @@ class PickSingleEnv(BaseEnv):
         obs = OrderedDict(
             gripper_pos=agent_qpos[self.agent.gripper_joint_ids].astype(np.float32),
             tcp_pose=np.hstack([cur_ee_pos, cur_ee_euler]).astype(np.float32),
-            action=action.astype(np.float32),
+            prev_action=action.astype(np.float32),  # a_{t-1}: action that produced this observation (zeros at reset)
         )
 
         grasps_ee, grasps_scores = self._compute_near_grasps_rt()

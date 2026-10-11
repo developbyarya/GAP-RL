@@ -274,7 +274,8 @@ if __name__ == "__main__":
         device=cfg["device"],
         seed=eval_seed,
     )
-    if is_goal_aux and n_stack > 1:
+    # window axis is required whenever the CustomSAC policy is used (even n_stack == 1)
+    if is_goal_aux:
         evalenv = FrameStackObsWrapper(evalenv, n_stack=n_stack, stack_keys=stack_keys)
     print("set eval env with seed: ", eval_seed)
 

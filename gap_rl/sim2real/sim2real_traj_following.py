@@ -652,7 +652,7 @@ class Sim2Real:
                 'gripper_pos': np.repeat((1 - robot_state_0['gripper_pos'] / 0.085) * 0.0425, 2).astype(np.float32),  # [0, 0.0425]
                 'tcp_pose': np.hstack([cur_ee_mat_world[:3, 3], cur_ee_euler]).astype(np.float32),
                 # 'grasp_state': np.repeat(robot_state_0['grasp_state'], 5),
-                'action': real_action.astype(np.float32),
+                'prev_action': real_action.astype(np.float32),
             }
             trans_ee2base = cur_pose_0.to_transformation_matrix()
             if self.args.save_rgb:
@@ -748,7 +748,7 @@ class Sim2Real:
                     'gripper_pos': np.repeat((1 - robot_state_0['gripper_pos'] / 0.085) * 0.0425, 2).astype(np.float32),  # [0, 0.0425]
                     'tcp_pose': np.hstack([cur_ee_mat_world[:3, 3], cur_ee_euler]).astype(np.float32),
                     # 'grasp_state': np.repeat(robot_state_0['grasp_state'], 5),
-                    'action': real_action.astype(np.float32),
+                    'prev_action': real_action.astype(np.float32),
                 }
                 trans_ee2base = cur_pose_0.to_transformation_matrix()
 
@@ -1095,11 +1095,11 @@ class Sim2Real:
                     'gripper_pos': np.repeat((1 - robot_state_0['gripper_pos'] / 0.085) * 0.0425, 2).astype(np.float32),  # [0, 0.0425]
                     'tcp_pose': np.hstack([cur_ee_mat_world[:3, 3], cur_ee_euler]).astype(np.float32),
                     # 'grasp_state': np.repeat(robot_state_0['grasp_state'], 5),
-                    'action': real_action.astype(np.float32),
+                    'prev_action': real_action.astype(np.float32),
                 }
                 print("+++ gripper_pos: ", cur_obs['gripper_pos'])
                 print("+++ tcp_pose: ", cur_obs['tcp_pose'])
-                print("+++ action: ", cur_obs['action'])
+                print("+++ action: ", cur_obs['prev_action'])
                 print("get real state time: ", time.time() - start)
 
                 ## get grasps
@@ -1241,11 +1241,11 @@ class Sim2Real:
                         # :para gripper_pos: [0, 0.085], close -> open
                         'gripper_pos': np.repeat((1 - robot_state_0['gripper_pos'] / 0.085) * 0.0425, 2).astype(np.float32),  # [0, 0.0425]
                         'tcp_pose': np.hstack([cur_ee_mat_world[:3, 3], cur_ee_euler]).astype(np.float32),
-                        'action': real_action.astype(np.float32),
+                        'prev_action': real_action.astype(np.float32),
                     }
                     print("+++ gripper_pos: ", cur_obs['gripper_pos'])
                     print("+++ tcp_pose: ", cur_obs['tcp_pose'])
-                    print("+++ action: ", cur_obs['action'])
+                    print("+++ action: ", cur_obs['prev_action'])
                     print("get real state time: ", time.time() - start)
 
                     # get obj pc
