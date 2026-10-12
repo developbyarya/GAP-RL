@@ -100,7 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--obs-mode", type=str, default="state_grasp9d_rt")  # state_grasp9d_rt, state_egopoints_rt
     parser.add_argument("--timestamp", type=str, default=None)
     parser.add_argument("--run-dir", type=str, default=None, help="Exact path to the run directory (e.g. runs/reward_ablation_...)")
-    parser.add_argument("--model-name", type=str, default="rl_model_2000000_steps", help="Name of the model file to load (without .zip)")
+    parser.add_argument("--config", type=str, default=None, help="Optional path to config.yaml (defaults to config.yaml inside run-dir)")
+    parser.add_argument("--model-name", type=str, default="rl_model_2000000_steps", help="Name of the model file to load (without or with .zip)")
     parser.add_argument("--seeds", type=int, nargs='+', required=True)
 
     parser.add_argument("--vis-grasp", action='store_true')
@@ -146,16 +147,19 @@ if __name__ == "__main__":
 
         if args.run_dir is not None:
             log_dir = os.path.abspath(args.run_dir)
-            log_path = os.path.basename(log_dir)
+            log_path = args.run_dir.rstrip("/")
         elif args.timestamp is not None:
             log_path = glob.glob(f"{args.timestamp}*")[0]
             log_dir = str(ALGORITHM_DIR / f"scripts/{log_path}")
         else:
             raise ValueError("Must provide either --timestamp or --run-dir")
 
-        config_file = os.path.join(log_dir, "config.yaml")
-        if not os.path.exists(config_file):
-            config_file = os.path.join(log_dir, "ablation_config.yaml")
+        if args.config is not None:
+            config_file = os.path.abspath(args.config)
+        else:
+            config_file = os.path.join(log_dir, "config.yaml")
+            if not os.path.exists(config_file):
+                config_file = os.path.join(log_dir, "ablation_config.yaml")
             
         with open(config_file, 'r', encoding='utf-8') as fin:
             cfg = yaml.load(fin, Loader=yaml.FullLoader)
@@ -233,12 +237,34 @@ if __name__ == "__main__":
                     save_on_reset=True,
                     clean_on_close=True,
                 )
-                # Note: load RL model, it will change record._main_seed
-                model_path = os.path.join(log_dir, args.model_name)
-                if not os.path.exists(model_path + ".zip"):
-                    # Fallback if specific steps model doesn't exist but final_model exists
-                    if os.path.exists(os.path.join(log_dir, "final_model.zip")):
-                        model_path = os.path.join(log_dir, "final_model")
+                # Resolve checkpoint path
+                raw_name = args.model_name
+                if raw_name.endswith(".zip"):
+                    raw_name = raw_name[:-4]
+
+                candidates = [
+                    os.path.join(log_dir, raw_name),
+                    os.path.join(log_dir, "best_checkpoint", raw_name),
+                    os.path.abspath(raw_name),
+                ]
+                chosen_path = None
+                for cand in candidates:
+                    if os.path.exists(cand + ".zip"):
+                        chosen_path = cand
+                        break
+                if chosen_path is None:
+                    # Fallback checks if requested name was not found
+                    if os.path.exists(os.path.join(log_dir, "best_checkpoint", "best_model.zip")):
+                        chosen_path = os.path.join(log_dir, "best_checkpoint", "best_model")
+                    elif os.path.exists(os.path.join(log_dir, "best_model.zip")):
+                        chosen_path = os.path.join(log_dir, "best_model")
+                    elif os.path.exists(os.path.join(log_dir, "final_model.zip")):
+                        chosen_path = os.path.join(log_dir, "final_model")
+                    else:
+                        chosen_path = os.path.join(log_dir, raw_name)
+
+                model_path = chosen_path
+                print(f"Loading RL checkpoint: {model_path}.zip")
                         
                 rl_model = CustomSAC.load(model_path,
                                     env=record_env,
