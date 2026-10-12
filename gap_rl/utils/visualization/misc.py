@@ -39,23 +39,37 @@ def images_to_video(
     video_name = video_name.replace(" ", "_").replace("\n", "_") + ".mp4"
     output_path = os.path.join(output_dir, video_name)
     # Force FFMPEG: newer imageio can pick tifffile for .mp4 and reject fps=
-    writer = imageio.get_writer(
-        output_path,
-        format="FFMPEG",
-        mode="I",
-        fps=fps,
-        quality=quality,
-        codec="libx264",
-        **kwargs,
-    )
-    if verbose:
-        print(f"Video created: {output_path}")
-        images_iter = tqdm.tqdm(images)
-    else:
-        images_iter = images
-    for im in images_iter:
-        writer.append_data(im)
-    writer.close()
+    try:
+        writer = imageio.get_writer(
+            output_path,
+            format="FFMPEG",
+            mode="I",
+            fps=fps,
+            quality=quality,
+            codec="libx264",
+            **kwargs,
+        )
+        if verbose:
+            print(f"Video created: {output_path}")
+            images_iter = tqdm.tqdm(images)
+        else:
+            images_iter = images
+        for im in images_iter:
+            writer.append_data(im)
+        writer.close()
+    except Exception as e:
+        if len(images) > 0 and isinstance(images[0], np.ndarray) and images[0].ndim == 3:
+            h, w, c = images[0].shape
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            vw = cv2.VideoWriter(output_path, fourcc, float(fps), (w, h))
+            for im in images:
+                bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR) if im.shape[2] == 3 else im
+                vw.write(bgr)
+            vw.release()
+            if verbose:
+                print(f"Video created (cv2 fallback): {output_path}")
+        else:
+            raise e
 
 
 def normalize_depth(depth, min_depth=0, max_depth=None):

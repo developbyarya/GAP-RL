@@ -642,6 +642,8 @@ if __name__ == "__main__":
                             exp_steps.append(total_steps)
                             suffix = f"success_{total_steps}" if success_flag else "failure"
                             record_env.set_video_suffix(f"{epi_seed}_" + suffix)
+                            if args.save_video:
+                                record_env.flush_video(ignore_empty_transition=True)
 
                             # Finalize episode metrics
                             epi_record, curves_dict, latent_dict = tracker.finalize()
@@ -712,6 +714,8 @@ if __name__ == "__main__":
                 # Save trajectory mode summary metrics
                 traj_summary = traj_aggregator.compute_summary()
                 write_json_summary(f"{log_path}/{result_path}/{gen_traj_mode}/summary_metrics.json", traj_summary)
+
+                record_env.close()
 
                 sr_current_dataset.append(mean_sr)
                 st_current_dataset.append(mean_st)

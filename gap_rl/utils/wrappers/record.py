@@ -139,6 +139,9 @@ class RecordEpisode(gym.Wrapper):
         self.init_state_only = False
 
     def reset_output_dir(self, output_dir):
+        if self.save_on_reset and self._episode_id >= 0:
+            self.flush_trajectory(ignore_empty_transition=True)
+            self.flush_video(ignore_empty_transition=True)
         self._episode_id = -1
         cur_output_dir = Path(output_dir)
         if self.output_dir != output_dir:
@@ -307,6 +310,7 @@ class RecordEpisode(gym.Wrapper):
             fps=5,
             verbose=verbose,
         )
+        self._render_images = []
 
     def close(self) -> None:
         if self.save_trajectory:
