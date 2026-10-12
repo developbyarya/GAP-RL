@@ -525,7 +525,8 @@ class CustomActor(Actor):
 
     def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
-        return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
+        dist_kwargs = {k: v for k, v in kwargs.items() if k != "z_spatial"}
+        return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **dist_kwargs)
 
     def action_log_prob(self, obs: th.Tensor) -> Tuple[Tuple[th.Tensor, th.Tensor], th.Tensor, th.Tensor]:
         assert self.use_sde, "use_sde True."
@@ -548,7 +549,8 @@ class CustomActor(Actor):
         else:
             raise NotImplementedError
         target_pred = self.target_pred(pred_source)
-        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs), extra_pred, target_pred
+        dist_kwargs = {k: v for k, v in kwargs.items() if k != "z_spatial"}
+        return self.action_dist.log_prob_from_params(mean_actions, log_std, **dist_kwargs), extra_pred, target_pred
 
     def features_forward(self, obs: th.Tensor):
         with th.no_grad():
