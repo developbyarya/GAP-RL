@@ -6,6 +6,8 @@ so the LSTM receives a real (batch, n_stack, features_dim) sequence instead of
 a single zero-state timestep from i.i.d. ReplayBuffer samples.
 """
 
+import io
+import pathlib
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
@@ -136,7 +138,7 @@ class FrameStackObsWrapper(gym.ObservationWrapper):
         assert isinstance(env.observation_space, spaces.Dict), "FrameStackObsWrapper needs a Dict obs space"
         super().__init__(env)
         self.n_stack = n_stack
-        self.stack_keys = stack_keys
+        self.stack_keys = list(stack_keys)
         self._history = {k: deque(maxlen=n_stack) for k in stack_keys}
 
         new_spaces = {}
@@ -149,20 +151,49 @@ class FrameStackObsWrapper(gym.ObservationWrapper):
                 new_spaces[key] = space
         self.observation_space = spaces.Dict(new_spaces)
 
+    def align_action_key(self, target_key: str):
+        """Swaps history, stack_keys, and observation_space between 'action' and 'prev_action'."""
+        if target_key not in ("action", "prev_action"):
+            return
+        other_key = "prev_action" if target_key == "action" else "action"
+        if other_key in self.stack_keys:
+            self.stack_keys = [target_key if k == other_key else k for k in self.stack_keys]
+        if other_key in self._history:
+            self._history[target_key] = self._history.pop(other_key)
+        new_spaces = {k: v for k, v in self.observation_space.spaces.items() if k != other_key}
+        if other_key in self.observation_space.spaces and target_key not in new_spaces:
+            new_spaces[target_key] = self.observation_space.spaces[other_key]
+        self.observation_space = spaces.Dict(new_spaces)
+
     def _init_history(self, obs: Dict[str, np.ndarray]):
+        if "action" in self.stack_keys and "action" not in obs and "prev_action" in obs:
+            obs["action"] = obs["prev_action"]
+        elif "prev_action" in self.stack_keys and "prev_action" not in obs and "action" in obs:
+            obs["prev_action"] = obs["action"]
         for k in self.stack_keys:
             self._history[k].clear()
             for _ in range(self.n_stack):
                 self._history[k].append(obs[k])
 
     def _push(self, obs: Dict[str, np.ndarray]):
+        if "action" in self.stack_keys and "action" not in obs and "prev_action" in obs:
+            obs["action"] = obs["prev_action"]
+        elif "prev_action" in self.stack_keys and "prev_action" not in obs and "action" in obs:
+            obs["prev_action"] = obs["action"]
         for k in self.stack_keys:
             self._history[k].append(obs[k])
 
     def _build_obs(self, obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         out = {}
-        for k, v in obs.items():
-            out[k] = np.stack(self._history[k], axis=0) if k in self.stack_keys else v
+        for k, space in self.observation_space.spaces.items():
+            if k in self.stack_keys:
+                out[k] = np.stack(self._history[k], axis=0)
+            elif k in obs:
+                out[k] = obs[k]
+            elif k == "action" and "prev_action" in obs:
+                out[k] = obs["prev_action"]
+            elif k == "prev_action" and "action" in obs:
+                out[k] = obs["action"]
         return out
 
     def observation(self, observation: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -267,6 +298,10 @@ def extract_frame_sequence(
             flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
 
     flat_obs = preprocess_obs(flat_obs, orig_observation_space, normalize_images=normalize_images)
+    if "action" in flat_obs and "prev_action" not in flat_obs:
+        flat_obs["prev_action"] = flat_obs["action"]
+    elif "prev_action" in flat_obs and "action" not in flat_obs:
+        flat_obs["action"] = flat_obs["prev_action"]
     flat_feat = features_extractor(flat_obs)  # (batch * n_stack, features_dim)
     return flat_feat.view(batch_size, n_stack, -1)
 
@@ -868,3 +903,80 @@ class CustomSAC(SAC):
         self.logger.record("train/target_weight", target_weight)
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
+
+    def set_parameters(
+        self,
+        load_path_or_dict: Union[str, Dict[str, Dict]],
+        exact_match: bool = True,
+        device: Union[th.device, str] = "auto",
+    ) -> None:
+        """Loads model parameters with automatic translation for legacy single-trunk/Experiment 6 checkpoints."""
+        if isinstance(load_path_or_dict, dict):
+            params = load_path_or_dict
+        else:
+            from stable_baselines3.common.save_util import load_from_zip_file
+            _, params, _ = load_from_zip_file(load_path_or_dict, device=device)
+
+        if "policy" in params:
+            remapped = {}
+            for k, v in params["policy"].items():
+                new_k = k
+                if ".lstm." in new_k and ".temporal_encoder.lstm." not in new_k:
+                    new_k = new_k.replace(".lstm.", ".temporal_encoder.lstm.")
+                if ".state_map.weight" in new_k:
+                    new_k = new_k.replace(".state_map.weight", ".state_map.0.weight")
+                if ".state_map.bias" in new_k:
+                    new_k = new_k.replace(".state_map.bias", ".state_map.0.bias")
+                remapped[new_k] = v
+            params["policy"] = remapped
+
+        super().set_parameters(params, exact_match=exact_match, device=device)
+
+    @classmethod
+    def load(
+        cls,
+        path: Union[str, pathlib.Path, io.BufferedIOBase],
+        env: Optional[GymEnv] = None,
+        device: Union[th.device, str] = "auto",
+        custom_objects: Optional[Dict[str, Any]] = None,
+        print_system_info: bool = False,
+        force_reset: bool = True,
+        **kwargs,
+    ):
+        """Loads CustomSAC model with automatic observation space reconciliation for action/prev_action."""
+        from stable_baselines3.common.save_util import load_from_zip_file
+        data, _, _ = load_from_zip_file(
+            path,
+            device=device,
+            custom_objects=custom_objects,
+            print_system_info=print_system_info,
+        )
+
+        if env is not None and isinstance(data.get("observation_space"), spaces.Dict):
+            saved_keys = set(data["observation_space"].spaces.keys())
+            target_key = "action" if "action" in saved_keys else ("prev_action" if "prev_action" in saved_keys else None)
+            curr = env
+            while curr is not None:
+                if hasattr(curr, "align_action_key") and target_key:
+                    curr.align_action_key(target_key)
+                elif hasattr(curr, "observation_space") and isinstance(curr.observation_space, spaces.Dict):
+                    curr_spaces = dict(curr.observation_space.spaces)
+                    if target_key == "action" and "prev_action" in curr_spaces:
+                        curr_spaces["action"] = curr_spaces.get("action", curr_spaces["prev_action"])
+                        curr_spaces.pop("prev_action", None)
+                    elif target_key == "prev_action" and "action" in curr_spaces:
+                        curr_spaces["prev_action"] = curr_spaces.get("prev_action", curr_spaces["action"])
+                        curr_spaces.pop("action", None)
+                    curr.observation_space = spaces.Dict({k: curr_spaces[k] for k in saved_keys if k in curr_spaces})
+                curr = getattr(curr, "env", None)
+
+        return super().load(
+            path,
+            env=env,
+            device=device,
+            custom_objects=custom_objects,
+            print_system_info=print_system_info,
+            force_reset=force_reset,
+            **kwargs,
+        )
+

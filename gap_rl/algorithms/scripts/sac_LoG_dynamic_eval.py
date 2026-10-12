@@ -1,4 +1,24 @@
 import os
+import sys
+import types
+
+# Force NVIDIA Vulkan ICD if available to prevent crashes on hybrid systems with Intel iGPU
+if "VK_ICD_FILENAMES" not in os.environ:
+    for _icd in [
+        "/etc/vulkan/icd.d/nvidia_icd.json",
+        "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    ]:
+        if os.path.exists(_icd):
+            os.environ["VK_ICD_FILENAMES"] = _icd
+            break
+
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
 import glob
 import time
 import argparse
@@ -8,10 +28,49 @@ from tqdm import tqdm
 from copy import deepcopy
 from collections import OrderedDict
 
+# Compatibility guard for CPUs without AVX/AVX2 (e.g. Intel Pentium Gold, Celeron, or VMs):
+# Pre-built Open3D wheels unconditionally execute AVX instructions on import, triggering SIGILL.
+def _check_avx_support() -> bool:
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if line.startswith("flags") and "avx" in line.split():
+                    return True
+    except Exception:
+        pass
+    return False
+
+if not _check_avx_support():
+    _mock_o3d = types.ModuleType("open3d")
+    _mock_geom = types.ModuleType("open3d.geometry")
+    _mock_util = types.ModuleType("open3d.utility")
+    _mock_vis = types.ModuleType("open3d.visualization")
+    
+    class _Dummy:
+        def __init__(self, *args, **kwargs): pass
+        def __call__(self, *args, **kwargs): return self
+        def __getattr__(self, name): return self
+    
+    for _cls in ["Geometry", "PointCloud", "TriangleMesh", "LineSet", "AxisAlignedBoundingBox"]:
+        setattr(_mock_geom, _cls, _Dummy)
+    setattr(_mock_util, "Vector3dVector", lambda x: x)
+    setattr(_mock_vis, "draw_geometries", lambda *args, **kwargs: None)
+    _mock_o3d.geometry = _mock_geom
+    _mock_o3d.utility = _mock_util
+    _mock_o3d.visualization = _mock_vis
+    
+    sys.modules["open3d"] = _mock_o3d
+    sys.modules["open3d.geometry"] = _mock_geom
+    sys.modules["open3d.utility"] = _mock_util
+    sys.modules["open3d.visualization"] = _mock_vis
+
 import gym
 import numpy as np
 import torch
-import open3d as o3d
+try:
+    import open3d as o3d
+except Exception:
+    o3d = None
 from scipy.spatial.transform import Rotation as R
 
 from gap_rl import ALGORITHM_DIR
@@ -97,7 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--cam-mode", type=str, default="hand_realsense")
     parser.add_argument("--eval-datasets", type=str, nargs='+', required=True)  # "ycb_train", "ycb_eval", "graspnet_eval", "acronym_eval"
     parser.add_argument("--gen-traj-modes", type=str, nargs='+', required=True)  # line circle circular bezier2d random2d; random3d bezier3d
-    parser.add_argument("--obs-mode", type=str, default="state_grasp9d_rt")  # state_grasp9d_rt, state_egopoints_rt
+    parser.add_argument("--obs-mode", type=str, default=None, help="Observation mode (default: automatically inferred from config, e.g. <obs_mode>_rt)")
     parser.add_argument("--timestamp", type=str, default=None)
     parser.add_argument("--run-dir", type=str, default=None, help="Exact path to the run directory (e.g. runs/reward_ablation_...)")
     parser.add_argument("--config", type=str, default=None, help="Optional path to config.yaml (defaults to config.yaml inside run-dir)")
@@ -170,6 +229,12 @@ if __name__ == "__main__":
 
         filter_angle = np.pi / 3 if "filter" in cfg['grasp_select_mode'] else np.pi
         is_goal_aux = cfg.get('goal_aux', False)
+        if args.obs_mode is not None:
+            eval_obs_mode = args.obs_mode
+        else:
+            base_obs = cfg.get('obs_mode', 'state_grasp9d')
+            eval_obs_mode = base_obs if base_obs.endswith('_rt') else f"{base_obs}_rt"
+        print(f"Using evaluation observation mode: {eval_obs_mode}")
 
         for eval_dataset in args.eval_datasets:
             if args.cam_mode == 'hand_realsense':
@@ -204,7 +269,7 @@ if __name__ == "__main__":
                     gen_traj_mode=gen_traj_mode,
                     vary_speed=cfg['vary_speed'],
                     grasp_select_mode=cfg['grasp_select_mode'],
-                    obs_mode=args.obs_mode,
+                    obs_mode=eval_obs_mode,
                     control_mode=cfg['control_mode'],
                     reward_mode=cfg['reward_mode'],
                     sim_freq=cfg['sim_freq'],
@@ -270,6 +335,8 @@ if __name__ == "__main__":
                                     env=record_env,
                                     print_system_info=True
                                     )
+                if is_goal_aux and hasattr(env, "stack_keys"):
+                    stack_keys = env.stack_keys
 
                 for obs_key, box_space in record_env.observation_space.items():
                     print(f"{obs_key}: {box_space.shape} ")
