@@ -330,7 +330,8 @@ if __name__ == "__main__":
 
                 from custom_sac import FrameStackObsWrapper, default_stack_keys
                 if n_stack > 1:
-                    stack_keys = default_stack_keys(env.observation_space)
+                    temporal_mode = cfg.get("temporal_mode", "windowed")
+                    stack_keys = default_stack_keys(env.observation_space, temporal_mode=temporal_mode)
                     env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
                 else:
                     n_stack = 1

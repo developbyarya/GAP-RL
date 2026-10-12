@@ -48,8 +48,16 @@ if __name__ == "__main__":
     parser.add_argument("--exp-suffix", type=str, default=None, help="exp detail indications.")
     parser.add_argument("--timestamp", type=str, default=None, help="exp time stamp.")
     parser.add_argument("--distill", action='store_true')
-    parser.add_argument("--use-lstm", action='store_true', help="Use Attention before LSTM.")
-    parser.add_argument("--d-lstm", type=int, default=384, help="Attention embedding dimension.")
+    parser.add_argument("--use-lstm", action='store_true', help="Use LSTM in policy architecture.")
+    parser.add_argument("--d-lstm", type=int, default=384, help="Attention/LSTM embedding dimension.")
+    parser.add_argument(
+        "--temporal-mode",
+        type=str,
+        default=None,
+        choices=["windowed", "decoupled"],
+        help="Temporal architecture mode: 'windowed' (all keys stacked) or 'decoupled' (only kinematics stacked).",
+    )
+    parser.add_argument("--lstm-hidden-dim", type=int, default=None, help="Hidden dimension for kinematics LSTM in decoupled mode.")
 
     args = parser.parse_args()
 
@@ -60,6 +68,11 @@ if __name__ == "__main__":
     share_feat = cfg.get("share_feat", True)
     n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
     cfg["n_stack"] = n_stack
+
+    temporal_mode = args.temporal_mode or cfg.get("temporal_mode", "decoupled" if args.use_lstm else "windowed")
+    lstm_hidden_dim = args.lstm_hidden_dim or cfg.get("lstm_hidden_dim", 64)
+    cfg["temporal_mode"] = temporal_mode
+    cfg["lstm_hidden_dim"] = lstm_hidden_dim
 
     env_cfg_file = ALGORITHM_DIR / f"config/env_settings.yaml"
     with open(env_cfg_file, "r", encoding="utf-8") as fin:
@@ -117,12 +130,12 @@ if __name__ == "__main__":
     )
     # Capture unstacked Dict space before frame-stacking (features_extractor is built against this).
     orig_obs_space = vec_env.observation_space
-    stack_keys = default_stack_keys(orig_obs_space)
+    stack_keys = default_stack_keys(orig_obs_space, temporal_mode=temporal_mode)
     if is_goal_aux:
         # Always wrap CustomSAC envs so stacked keys have a leading time axis
         # (n_stack==1 still yields shape (1, *orig) for a consistent LSTM window).
         vec_env = FrameStackWrapper(vec_env, n_stack=n_stack, stack_keys=stack_keys)
-        print(f"FrameStack: n_stack={n_stack}, stack_keys={stack_keys}")
+        print(f"FrameStack ({temporal_mode}): n_stack={n_stack}, stack_keys={stack_keys}")
     vec_env = VecMonitor(vec_env, log_dir)
 
     # Setup periodic evaluation environment (1 process)
@@ -203,6 +216,8 @@ if __name__ == "__main__":
                 orig_observation_space=orig_obs_space,
                 stack_keys=stack_keys,
                 use_lstm=args.use_lstm,
+                temporal_mode=temporal_mode,
+                lstm_hidden_dim=lstm_hidden_dim,
             ),
             tensorboard_log=log_dir + "sac_opendoor_tb/",
             seed=seed,

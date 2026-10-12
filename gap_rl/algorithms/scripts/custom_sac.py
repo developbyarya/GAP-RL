@@ -35,9 +35,18 @@ SelfSAC = TypeVar("SelfSAC", bound="SAC")
 # Aux supervision targets: current-step only, never stacked into history.
 AUX_OBS_KEYS = ("close_grasp_pose_ee", "eval_target")
 
+# Kinematic / proprioceptive state keys for decoupled temporal modeling
+KINEMATICS_OBS_KEYS = ("tcp_pose", "gripper_pos", "prev_action", "action", "tcp_vel", "gripper_qvel")
 
-def default_stack_keys(observation_space: spaces.Dict) -> List[str]:
-    """Stack every Dict key except aux supervision targets."""
+
+def default_stack_keys(observation_space: spaces.Dict, temporal_mode: str = "windowed") -> List[str]:
+    """
+    Returns keys to stack into temporal history.
+    - If temporal_mode == 'decoupled': only kinematic/proprioceptive state is stacked.
+    - If temporal_mode == 'windowed': all keys except aux targets are stacked.
+    """
+    if temporal_mode == "decoupled":
+        return [k for k in observation_space.spaces.keys() if k in KINEMATICS_OBS_KEYS]
     return [k for k in observation_space.spaces.keys() if k not in AUX_OBS_KEYS]
 
 
@@ -261,11 +270,16 @@ class TemporalEncoder(nn.Module):
         return lstm_out[:, -1, :]
 
 
-def validate_stack_keys(observation_space: spaces.Dict, stack_keys: List[str]) -> None:
+def validate_stack_keys(
+    observation_space: spaces.Dict, stack_keys: List[str], temporal_mode: str = "windowed"
+) -> None:
     """
-    Every per-frame observation (GGN input AND robot state / prev_action / grasp_exist)
-    must be temporal. Only AUX_OBS_KEYS (supervision targets) may stay unstacked.
+    Validates stack_keys against observation_space.
+    In windowed mode: every non-aux key must be in stack_keys.
+    In decoupled mode: stack_keys only contain kinematics keys.
     """
+    if temporal_mode == "decoupled":
+        return
     missing = [
         k for k in observation_space.spaces.keys()
         if k not in AUX_OBS_KEYS and k not in stack_keys
@@ -275,6 +289,33 @@ def validate_stack_keys(observation_space: spaces.Dict, stack_keys: List[str]) -
             f"Observation keys {missing} are consumed per-frame but are not in stack_keys; "
             f"they would be frozen to the current step while the rest of the window moves."
         )
+
+
+def extract_kinematics_sequence(obs: Dict[str, th.Tensor], stack_keys: List[str]) -> th.Tensor:
+    """Concatenates all stacked kinematics tensors into [batch, n_stack, kin_dim]."""
+    parts = []
+    batch_size = None
+    n_stack = None
+    for k in stack_keys:
+        if k in obs:
+            val = obs[k]
+            if batch_size is None:
+                batch_size, n_stack = val.shape[:2]
+            parts.append(val.reshape(batch_size, n_stack, -1))
+    if not parts:
+        raise ValueError(f"No keys from {stack_keys} found in observation for kinematics sequence!")
+    return th.cat(parts, dim=-1)
+
+
+def extract_current_frame_obs(obs: Dict[str, th.Tensor], stack_keys: List[str]) -> Dict[str, th.Tensor]:
+    """Returns observation dict for current frame (t), slicing [:, -1] for stacked keys."""
+    curr = {}
+    for k, v in obs.items():
+        if k in stack_keys:
+            curr[k] = v[:, -1]
+        else:
+            curr[k] = v
+    return curr
 
 
 def _prepare_unstacked_obs(obs: Dict[str, th.Tensor], orig_observation_space: spaces.Dict) -> Dict[str, th.Tensor]:
@@ -359,6 +400,8 @@ class CustomActor(Actor):
         normalize_images: bool = True,
         extra_pred_dim: int = 7,
         use_lstm: bool = False,
+        temporal_mode: str = "windowed",
+        lstm_hidden_dim: int = 64,
     ):
         super().__init__(
             observation_space,
@@ -380,25 +423,35 @@ class CustomActor(Actor):
             stack_keys = []
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
+        self.temporal_mode = temporal_mode
+        self.lstm_hidden_dim = lstm_hidden_dim
+        self.use_lstm = use_lstm
         if stack_keys:
-            validate_stack_keys(orig_observation_space, stack_keys)
+            validate_stack_keys(orig_observation_space, stack_keys, temporal_mode=temporal_mode)
 
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
-        self.use_lstm = use_lstm
-        # Temporal encoder: z[t-k+1..t] -> h_t. hidden_dim == features_dim because
-        # SB3's latent_pi MLP was built against `features_dim`.
-        self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
 
-        # Auxiliary heads read latent_pi (output of the policy MLP, width = last_layer_dim):
-        #   GGN -> LSTM -> h_t -> latent_pi -+-> mu / log_std (actor)
-        #                                    +-> extra_pred (grasp-pose goal)
-        #                                    +-> target_pred (eval target)
-        self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)
+        if self.temporal_mode == "decoupled" and self.use_lstm:
+            kin_keys = [k for k in self.stack_keys if k in self.orig_observation_space.spaces]
+            kinematics_dim = sum(int(np.prod(self.orig_observation_space[k].shape)) for k in kin_keys)
+            self.temporal_encoder = TemporalEncoder(features_dim=kinematics_dim, hidden_dim=lstm_hidden_dim)
+            # Latent MLP fuses spatial features (features_dim) + temporal state (lstm_hidden_dim)
+            latent_dim = features_dim + lstm_hidden_dim
+            latent_pi_net = create_mlp(latent_dim, -1, net_arch, activation_fn)
+            self.latent_pi = nn.Sequential(*latent_pi_net)
+            # In decoupled mode, extra_pred attaches directly to spatial features for uncorrupted goal_aux
+            self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
+            self.target_pred = nn.Linear(features_dim, 4)
+        else:
+            # Legacy windowed or non-LSTM mode
+            self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
+            self.extra_pred = nn.Linear(last_layer_dim, extra_pred_dim)
+            self.target_pred = nn.Linear(last_layer_dim, 4)
+
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
         self.extra_pred_dim = extra_pred_dim
 
-        self.target_pred = nn.Linear(last_layer_dim, 4)
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
@@ -418,6 +471,21 @@ class CustomActor(Actor):
             self.normalize_images,
         )
 
+    def _extract_decoupled_features(self, obs: Dict[str, th.Tensor]) -> Tuple[th.Tensor, th.Tensor]:
+        """Returns (z_spatial, h_temporal) for decoupled architecture."""
+        curr_obs = extract_current_frame_obs(obs, self.stack_keys)
+        flat_obs = _prepare_unstacked_obs(curr_obs, self.orig_observation_space)
+        flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+        flat_obs = _ensure_action_aliases(flat_obs)
+        z_spatial = self.features_extractor(flat_obs)
+
+        if self.use_lstm:
+            kin_seq = extract_kinematics_sequence(obs, self.stack_keys)
+            h_temporal = self.temporal_encoder(kin_seq)
+        else:
+            h_temporal = th.zeros(z_spatial.shape[0], 0, device=z_spatial.device)
+        return z_spatial, h_temporal
+
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         """h_t = LSTM(z_{t-k+1}, ..., z_t) if use_lstm else z_t"""
         if not self.stack_keys and not self.use_lstm:
@@ -431,6 +499,20 @@ class CustomActor(Actor):
         return seq[:, -1, :]
 
     def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
+        if self.temporal_mode == "decoupled":
+            z_spatial, h_temporal = self._extract_decoupled_features(obs)
+            fused = th.cat([z_spatial, h_temporal], dim=-1) if self.use_lstm else z_spatial
+            latent_pi = self.latent_pi(fused)
+            mean_actions = self.mu(latent_pi)
+
+            kwargs = dict(z_spatial=z_spatial)
+            if self.use_sde:
+                kwargs["latent_sde"] = latent_pi
+                return mean_actions, self.log_std, kwargs
+            log_std = self.log_std(latent_pi)
+            log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+            return mean_actions, log_std, kwargs
+
         h_t = self._extract_windowed_features(obs)
         latent_pi = self.latent_pi(h_t)
         mean_actions = self.mu(latent_pi)
@@ -448,7 +530,8 @@ class CustomActor(Actor):
     def action_log_prob(self, obs: th.Tensor) -> Tuple[Tuple[th.Tensor, th.Tensor], th.Tensor, th.Tensor]:
         assert self.use_sde, "use_sde True."
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
-        extra_pred = self.extra_pred(kwargs["latent_sde"])
+        pred_source = kwargs.get("z_spatial", kwargs.get("latent_sde"))
+        extra_pred = self.extra_pred(pred_source)
         if self.extra_pred_dim == 7:
             extra_pred = th.cat(
                 (F.normalize(extra_pred[:, :4], p=2, dim=-1), extra_pred[:, 4:]), dim=-1
@@ -464,11 +547,14 @@ class CustomActor(Actor):
             )
         else:
             raise NotImplementedError
-        target_pred = self.target_pred(kwargs["latent_sde"])
+        target_pred = self.target_pred(pred_source)
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs), extra_pred, target_pred
 
     def features_forward(self, obs: th.Tensor):
         with th.no_grad():
+            if self.temporal_mode == "decoupled":
+                z_spatial, h_temporal = self._extract_decoupled_features(obs)
+                return th.cat([z_spatial, h_temporal], dim=-1) if self.use_lstm else z_spatial
             return self._extract_windowed_features(obs)
 
 
@@ -491,6 +577,8 @@ class CustomContinuousCritic(BaseModel):
         share_features_extractor: bool = True,
         extra_pred_dim: int = 7,
         use_lstm: bool = False,
+        temporal_mode: str = "windowed",
+        lstm_hidden_dim: int = 64,
     ):
         super().__init__(
             observation_space,
@@ -505,29 +593,42 @@ class CustomContinuousCritic(BaseModel):
             stack_keys = []
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
+        self.temporal_mode = temporal_mode
+        self.lstm_hidden_dim = lstm_hidden_dim
+        self.use_lstm = use_lstm
         if stack_keys:
-            validate_stack_keys(orig_observation_space, stack_keys)
+            validate_stack_keys(orig_observation_space, stack_keys, temporal_mode=temporal_mode)
 
         self.share_features_extractor = share_features_extractor
         self.n_critics = n_critics
-        self.q_networks = []
-        for idx in range(n_critics):
-            q_net = create_mlp(features_dim + action_dim, 1, net_arch, activation_fn)
-            q_net = nn.Sequential(*q_net)
-            self.add_module(f"qf{idx}", q_net)
-            self.q_networks.append(q_net)
 
-        self.use_lstm = use_lstm
-        # h_t = LSTM(z_{t-k+1..t}); Q_i = Q_i(h_t, a_t).
-        # The window contains a_{t-1} (obs["prev_action"]); a_t is the Critic's `actions` input.
-        self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
+        if self.temporal_mode == "decoupled" and self.use_lstm:
+            kin_keys = [k for k in self.stack_keys if k in self.orig_observation_space.spaces]
+            kinematics_dim = sum(int(np.prod(self.orig_observation_space[k].shape)) for k in kin_keys)
+            self.temporal_encoder = TemporalEncoder(features_dim=kinematics_dim, hidden_dim=lstm_hidden_dim)
+            self.q_networks = []
+            for idx in range(n_critics):
+                q_net = create_mlp(features_dim + lstm_hidden_dim + action_dim, 1, net_arch, activation_fn)
+                q_net = nn.Sequential(*q_net)
+                self.add_module(f"qf{idx}", q_net)
+                self.q_networks.append(q_net)
+            self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
+            self.target_pred = nn.Linear(features_dim, 4)
+        else:
+            self.temporal_encoder = TemporalEncoder(features_dim=features_dim, hidden_dim=features_dim)
+            self.q_networks = []
+            for idx in range(n_critics):
+                q_net = create_mlp(features_dim + action_dim, 1, net_arch, activation_fn)
+                q_net = nn.Sequential(*q_net)
+                self.add_module(f"qf{idx}", q_net)
+                self.q_networks.append(q_net)
+            self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
+            self.target_pred = nn.Linear(features_dim, 4)
 
         self.extra_pred_dim = extra_pred_dim
-        self.extra_pred = nn.Linear(features_dim, extra_pred_dim)
         nn.init.xavier_uniform_(self.extra_pred.weight, gain=1)
         nn.init.constant_(self.extra_pred.bias, 0)
 
-        self.target_pred = nn.Linear(features_dim, 4)
         nn.init.xavier_uniform_(self.target_pred.weight, gain=1)
         nn.init.constant_(self.target_pred.bias, 0)
 
@@ -549,6 +650,22 @@ class CustomContinuousCritic(BaseModel):
                 self.normalize_images,
             )
 
+    def _extract_decoupled_features(self, obs: Dict[str, th.Tensor]) -> Tuple[th.Tensor, th.Tensor]:
+        """Returns (z_spatial, h_temporal) for decoupled architecture."""
+        with th.set_grad_enabled(not self.share_features_extractor):
+            curr_obs = extract_current_frame_obs(obs, self.stack_keys)
+            flat_obs = _prepare_unstacked_obs(curr_obs, self.orig_observation_space)
+            flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+            flat_obs = _ensure_action_aliases(flat_obs)
+            z_spatial = self.features_extractor(flat_obs)
+
+        if self.use_lstm:
+            kin_seq = extract_kinematics_sequence(obs, self.stack_keys)
+            h_temporal = self.temporal_encoder(kin_seq)
+        else:
+            h_temporal = th.zeros(z_spatial.shape[0], 0, device=z_spatial.device)
+        return z_spatial, h_temporal
+
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         """h_t = LSTM(z_{t-k+1}, ..., z_t) if use_lstm else z_t"""
         if not self.stack_keys and not self.use_lstm:
@@ -563,12 +680,19 @@ class CustomContinuousCritic(BaseModel):
         return seq[:, -1, :]
 
     def forward(self, obs: th.Tensor, actions: th.Tensor):
-        features = self._extract_windowed_features(obs)
-        qvalue_input = th.cat([features, actions], dim=-1)
+        if self.temporal_mode == "decoupled":
+            z_spatial, h_temporal = self._extract_decoupled_features(obs)
+            fused = th.cat([z_spatial, h_temporal], dim=-1) if self.use_lstm else z_spatial
+            qvalue_input = th.cat([fused, actions], dim=-1)
+            pred_source = z_spatial
+        else:
+            features = self._extract_windowed_features(obs)
+            qvalue_input = th.cat([features, actions], dim=-1)
+            pred_source = features
 
         extra_pred = None
         if self.extra_pred_dim:
-            extra_pred = self.extra_pred(features)
+            extra_pred = self.extra_pred(pred_source)
             if self.extra_pred_dim == 7:
                 extra_pred = th.cat(
                     (F.normalize(extra_pred[..., :4], p=2, dim=-1), extra_pred[..., 4:]), dim=-1
@@ -584,19 +708,27 @@ class CustomContinuousCritic(BaseModel):
                 )
             else:
                 raise NotImplementedError
-        target_pred = self.target_pred(features)
+        target_pred = self.target_pred(pred_source)
 
         q_vals = tuple(q_net(qvalue_input) for q_net in self.q_networks)
         return q_vals, extra_pred, target_pred
 
     def q1_forward(self, obs: th.Tensor, actions: th.Tensor) -> th.Tensor:
-        with th.no_grad():
-            features = self._extract_windowed_features(obs)
-        qvalue_input = th.cat([features, actions], dim=-1)
+        if self.temporal_mode == "decoupled":
+            z_spatial, h_temporal = self._extract_decoupled_features(obs)
+            fused = th.cat([z_spatial, h_temporal], dim=-1) if self.use_lstm else z_spatial
+            qvalue_input = th.cat([fused, actions], dim=-1)
+        else:
+            with th.no_grad():
+                features = self._extract_windowed_features(obs)
+            qvalue_input = th.cat([features, actions], dim=-1)
         return self.q_networks[0](qvalue_input)
 
     def features_forward(self, obs: th.Tensor):
         with th.no_grad():
+            if self.temporal_mode == "decoupled":
+                z_spatial, h_temporal = self._extract_decoupled_features(obs)
+                return th.cat([z_spatial, h_temporal], dim=-1) if self.use_lstm else z_spatial
             return self._extract_windowed_features(obs)
 
 
@@ -626,12 +758,16 @@ class CustomSACPolicy(SACPolicy):
         share_features_extractor: bool = False,
         extra_pred_dim: int = 7,
         use_lstm: bool = False,
+        temporal_mode: str = "windowed",
+        lstm_hidden_dim: int = 64,
     ):
         if orig_observation_space is None:
             orig_observation_space = observation_space
         if stack_keys is None:
             stack_keys = []
         self.use_lstm = use_lstm
+        self.temporal_mode = temporal_mode
+        self.lstm_hidden_dim = lstm_hidden_dim
         self.orig_observation_space = orig_observation_space
         self.stack_keys = stack_keys
         self.extra_pred_dim = extra_pred_dim
@@ -670,7 +806,9 @@ class CustomSACPolicy(SACPolicy):
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
                 use_lstm=self.use_lstm,
-                            )
+                temporal_mode=self.temporal_mode,
+                lstm_hidden_dim=self.lstm_hidden_dim,
+            )
         )
         return CustomActor(**actor_kwargs).to(self.device)
 
@@ -686,7 +824,9 @@ class CustomSACPolicy(SACPolicy):
                 stack_keys=self.stack_keys,
                 orig_observation_space=self.orig_observation_space,
                 use_lstm=self.use_lstm,
-                            )
+                temporal_mode=self.temporal_mode,
+                lstm_hidden_dim=self.lstm_hidden_dim,
+            )
         )
         return CustomContinuousCritic(**critic_kwargs).to(self.device)
 
@@ -1063,6 +1203,11 @@ class CustomSAC(SAC):
                 data["policy_kwargs"]["use_lstm"] = True
                 if "policy_kwargs" in custom_objects and custom_objects["policy_kwargs"] is not None:
                     custom_objects["policy_kwargs"]["use_lstm"] = True
+                # Detect temporal_mode if specified in policy_kwargs or checkpoint
+                temporal_mode = data["policy_kwargs"].get("temporal_mode", "windowed")
+                data["policy_kwargs"]["temporal_mode"] = temporal_mode
+                if "policy_kwargs" in custom_objects and custom_objects["policy_kwargs"] is not None:
+                    custom_objects["policy_kwargs"]["temporal_mode"] = custom_objects["policy_kwargs"].get("temporal_mode", temporal_mode)
 
         if env is not None and isinstance(data.get("observation_space"), spaces.Dict):
             saved_keys = set(data["observation_space"].spaces.keys())
