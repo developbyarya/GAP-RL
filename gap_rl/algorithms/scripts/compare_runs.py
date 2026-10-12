@@ -18,10 +18,22 @@ import numpy as np
 
 
 def load_records(file_path: str) -> List[Dict[str, Any]]:
-    """Loads episode records from JSONL or JSON."""
+    """Loads episode records from JSONL or JSON file, or searches all episodes.jsonl if given a directory."""
     records = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
+
+    if os.path.isdir(file_path):
+        jsonl_files = []
+        for root, _, files in os.walk(file_path):
+            if "episodes.jsonl" in files:
+                jsonl_files.append(os.path.join(root, "episodes.jsonl"))
+        if not jsonl_files:
+            raise FileNotFoundError(f"No episodes.jsonl found inside directory: {file_path}")
+        all_recs = []
+        for jf in sorted(jsonl_files):
+            all_recs.extend(load_records(jf))
+        return all_recs
 
     with open(file_path, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, start=1):

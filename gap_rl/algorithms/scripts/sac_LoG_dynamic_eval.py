@@ -277,31 +277,7 @@ if __name__ == "__main__":
                     device=cfg["device"],
                 )
                 env = NormalizeBoxActionWrapper(env)
-                if is_goal_aux:
-                    n_stack = cfg.get("n_stack", 4)
-                    # window axis is required by the CustomSAC policy even when n_stack == 1
-                    from custom_sac import FrameStackObsWrapper, default_stack_keys
-                    stack_keys = default_stack_keys(env.observation_space)
-                    env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
-                else:
-                    n_stack = 1
-                    stack_keys = None
-                para = {
-                    "camera_modes": camera_modes,
-                    "add_noise": args.add_noise
-                }
-                env.set_rt_paras(**para)
-                record_env = RecordEpisode(
-                    env=env,
-                    output_dir='./',
-                    save_trajectory=False,
-                    trajectory_name=None,
-                    save_video=args.save_video,
-                    info_on_video=False,
-                    render_mode="agent_cameras",
-                    save_on_reset=True,
-                    clean_on_close=True,
-                )
+
                 # Resolve checkpoint path
                 raw_name = args.model_name
                 if raw_name.endswith(".zip"):
@@ -329,7 +305,56 @@ if __name__ == "__main__":
                         chosen_path = os.path.join(log_dir, raw_name)
 
                 model_path = chosen_path
-                print(f"Loading RL checkpoint: {model_path}.zip")
+
+                # Automatically detect n_stack by checking observation space in checkpoint
+                ckpt_n_stack = None
+                try:
+                    from stable_baselines3.common.save_util import load_from_zip_file
+                    ckpt_d, _, _ = load_from_zip_file(model_path, device="cpu", custom_objects={"action_space": env.action_space})
+                    if "observation_space" in ckpt_d and isinstance(ckpt_d["observation_space"], gym.spaces.Dict):
+                        for k in ["tcp_pose", "action", "prev_action", "gripper_pos"]:
+                            if k in ckpt_d["observation_space"].spaces:
+                                sp = ckpt_d["observation_space"].spaces[k]
+                                if len(sp.shape) >= 2:
+                                    ckpt_n_stack = sp.shape[0]
+                                else:
+                                    ckpt_n_stack = 1
+                                break
+                except Exception:
+                    pass
+
+                if ckpt_n_stack is not None:
+                    n_stack = ckpt_n_stack
+                else:
+                    n_stack = cfg.get("n_stack", 1)
+
+                from custom_sac import FrameStackObsWrapper, default_stack_keys
+                if n_stack > 1:
+                    stack_keys = default_stack_keys(env.observation_space)
+                    env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
+                else:
+                    n_stack = 1
+                    stack_keys = []
+                    env = FrameStackObsWrapper(env, n_stack=1, stack_keys=[])
+
+                para = {
+                    "camera_modes": camera_modes,
+                    "add_noise": args.add_noise
+                }
+                env.set_rt_paras(**para)
+                record_env = RecordEpisode(
+                    env=env,
+                    output_dir='./',
+                    save_trajectory=False,
+                    trajectory_name=None,
+                    save_video=args.save_video,
+                    info_on_video=False,
+                    render_mode="agent_cameras",
+                    save_on_reset=True,
+                    clean_on_close=True,
+                )
+
+                print(f"Loading RL checkpoint: {model_path}.zip (n_stack={n_stack})")
                         
                 rl_model = CustomSAC.load(model_path,
                                     env=record_env,

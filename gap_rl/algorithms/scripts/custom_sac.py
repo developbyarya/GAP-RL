@@ -194,6 +194,9 @@ class FrameStackObsWrapper(gym.ObservationWrapper):
                 out[k] = obs["prev_action"]
             elif k == "prev_action" and "action" in obs:
                 out[k] = obs["action"]
+        for k, v in obs.items():
+            if k not in out and k not in ("action", "prev_action"):
+                out[k] = v
         return out
 
     def observation(self, observation: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -274,6 +277,28 @@ def validate_stack_keys(observation_space: spaces.Dict, stack_keys: List[str]) -
         )
 
 
+def _prepare_unstacked_obs(obs: Dict[str, th.Tensor], orig_observation_space: spaces.Dict) -> Dict[str, th.Tensor]:
+    """Ensures unstacked flat_obs has exactly the keys in orig_observation_space."""
+    flat_obs = {}
+    for k in orig_observation_space.spaces.keys():
+        if k in obs:
+            flat_obs[k] = obs[k]
+        elif k == "action" and "prev_action" in obs:
+            flat_obs["action"] = obs["prev_action"]
+        elif k == "prev_action" and "action" in obs:
+            flat_obs["prev_action"] = obs["action"]
+    return flat_obs
+
+
+def _ensure_action_aliases(flat_obs: Dict[str, th.Tensor]) -> Dict[str, th.Tensor]:
+    """Ensures both 'action' and 'prev_action' exist in flat_obs if either is present."""
+    if "action" in flat_obs and "prev_action" not in flat_obs:
+        flat_obs["prev_action"] = flat_obs["action"]
+    elif "prev_action" in flat_obs and "action" not in flat_obs:
+        flat_obs["action"] = flat_obs["prev_action"]
+    return flat_obs
+
+
 def extract_frame_sequence(
     features_extractor: nn.Module,
     obs: Dict[str, th.Tensor],
@@ -291,17 +316,22 @@ def extract_frame_sequence(
     batch_size, n_stack = obs[stack_keys[0]].shape[:2]
 
     flat_obs = {}
-    for k, v in obs.items():
-        if k in stack_keys:
-            flat_obs[k] = v.reshape(batch_size * n_stack, *v.shape[2:])
-        else:
-            flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
+    for k in orig_observation_space.spaces.keys():
+        src_k = k
+        if src_k not in obs:
+            if src_k == "action" and "prev_action" in obs:
+                src_k = "prev_action"
+            elif src_k == "prev_action" and "action" in obs:
+                src_k = "action"
+        if src_k in obs:
+            v = obs[src_k]
+            if src_k in stack_keys or k in stack_keys:
+                flat_obs[k] = v.reshape(batch_size * n_stack, *v.shape[2:])
+            else:
+                flat_obs[k] = v.repeat_interleave(n_stack, dim=0)
 
     flat_obs = preprocess_obs(flat_obs, orig_observation_space, normalize_images=normalize_images)
-    if "action" in flat_obs and "prev_action" not in flat_obs:
-        flat_obs["prev_action"] = flat_obs["action"]
-    elif "prev_action" in flat_obs and "action" not in flat_obs:
-        flat_obs["action"] = flat_obs["prev_action"]
+    flat_obs = _ensure_action_aliases(flat_obs)
     flat_feat = features_extractor(flat_obs)  # (batch * n_stack, features_dim)
     return flat_feat.view(batch_size, n_stack, -1)
 
@@ -318,8 +348,8 @@ class CustomActor(Actor):
         net_arch: List[int],
         features_extractor: nn.Module,
         features_dim: int,
-        stack_keys: List[str],
-        orig_observation_space: spaces.Dict,
+        stack_keys: Optional[List[str]] = None,
+        orig_observation_space: Optional[spaces.Dict] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         log_std_init: float = -3,
@@ -344,9 +374,14 @@ class CustomActor(Actor):
             clip_mean,
             normalize_images=normalize_images,
         )
+        if orig_observation_space is None:
+            orig_observation_space = observation_space
+        if stack_keys is None:
+            stack_keys = []
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
-        validate_stack_keys(orig_observation_space, stack_keys)
+        if stack_keys:
+            validate_stack_keys(orig_observation_space, stack_keys)
 
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
         self.use_lstm = use_lstm
@@ -369,6 +404,12 @@ class CustomActor(Actor):
 
     def _extract_sequence(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         """Stacked obs (batch, n_stack, ...) -> per-frame features z: [batch, n_stack, features_dim]."""
+        if not self.stack_keys:
+            flat_obs = _prepare_unstacked_obs(obs, self.orig_observation_space)
+            flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+            flat_obs = _ensure_action_aliases(flat_obs)
+            feat = self.features_extractor(flat_obs)
+            return feat.unsqueeze(1)
         return extract_frame_sequence(
             self.features_extractor,
             obs,
@@ -378,8 +419,16 @@ class CustomActor(Actor):
         )
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
-        """h_t = LSTM(z_{t-k+1}, ..., z_t)"""
-        return self.temporal_encoder(self._extract_sequence(obs))
+        """h_t = LSTM(z_{t-k+1}, ..., z_t) if use_lstm else z_t"""
+        if not self.stack_keys and not self.use_lstm:
+            flat_obs = _prepare_unstacked_obs(obs, self.orig_observation_space)
+            flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+            flat_obs = _ensure_action_aliases(flat_obs)
+            return self.features_extractor(flat_obs)
+        seq = self._extract_sequence(obs)
+        if self.use_lstm:
+            return self.temporal_encoder(seq)
+        return seq[:, -1, :]
 
     def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
         h_t = self._extract_windowed_features(obs)
@@ -434,8 +483,8 @@ class CustomContinuousCritic(BaseModel):
         net_arch: List[int],
         features_extractor: BaseFeaturesExtractor,
         features_dim: int,
-        stack_keys: List[str],
-        orig_observation_space: spaces.Dict,
+        stack_keys: Optional[List[str]] = None,
+        orig_observation_space: Optional[spaces.Dict] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         normalize_images: bool = True,
         n_critics: int = 2,
@@ -450,9 +499,14 @@ class CustomContinuousCritic(BaseModel):
             normalize_images=normalize_images,
         )
         action_dim = get_action_dim(self.action_space)
+        if orig_observation_space is None:
+            orig_observation_space = observation_space
+        if stack_keys is None:
+            stack_keys = []
         self.stack_keys = stack_keys
         self.orig_observation_space = orig_observation_space
-        validate_stack_keys(orig_observation_space, stack_keys)
+        if stack_keys:
+            validate_stack_keys(orig_observation_space, stack_keys)
 
         self.share_features_extractor = share_features_extractor
         self.n_critics = n_critics
@@ -479,7 +533,13 @@ class CustomContinuousCritic(BaseModel):
 
     def _extract_sequence(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
         """Stacked obs (batch, n_stack, ...) -> per-frame features z: [batch, n_stack, features_dim]."""
-        # A shared extractor is owned/updated by the actor, so no grad through it from the critic.
+        if not self.stack_keys:
+            with th.set_grad_enabled(not self.share_features_extractor):
+                flat_obs = _prepare_unstacked_obs(obs, self.orig_observation_space)
+                flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+                flat_obs = _ensure_action_aliases(flat_obs)
+                feat = self.features_extractor(flat_obs)
+                return feat.unsqueeze(1)
         with th.set_grad_enabled(not self.share_features_extractor):
             return extract_frame_sequence(
                 self.features_extractor,
@@ -490,8 +550,17 @@ class CustomContinuousCritic(BaseModel):
             )
 
     def _extract_windowed_features(self, obs: Dict[str, th.Tensor]) -> th.Tensor:
-        """h_t = LSTM(z_{t-k+1}, ..., z_t)"""
-        return self.temporal_encoder(self._extract_sequence(obs))
+        """h_t = LSTM(z_{t-k+1}, ..., z_t) if use_lstm else z_t"""
+        if not self.stack_keys and not self.use_lstm:
+            with th.set_grad_enabled(not self.share_features_extractor):
+                flat_obs = _prepare_unstacked_obs(obs, self.orig_observation_space)
+                flat_obs = preprocess_obs(flat_obs, self.orig_observation_space, normalize_images=self.normalize_images)
+                flat_obs = _ensure_action_aliases(flat_obs)
+                return self.features_extractor(flat_obs)
+        seq = self._extract_sequence(obs)
+        if self.use_lstm:
+            return self.temporal_encoder(seq)
+        return seq[:, -1, :]
 
     def forward(self, obs: th.Tensor, actions: th.Tensor):
         features = self._extract_windowed_features(obs)
@@ -540,8 +609,8 @@ class CustomSACPolicy(SACPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Space,
         lr_schedule: Schedule,
-        orig_observation_space: spaces.Dict,
-        stack_keys: List[str],
+        orig_observation_space: Optional[spaces.Dict] = None,
+        stack_keys: Optional[List[str]] = None,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
@@ -558,6 +627,10 @@ class CustomSACPolicy(SACPolicy):
         extra_pred_dim: int = 7,
         use_lstm: bool = False,
     ):
+        if orig_observation_space is None:
+            orig_observation_space = observation_space
+        if stack_keys is None:
+            stack_keys = []
         self.use_lstm = use_lstm
         self.orig_observation_space = orig_observation_space
         self.stack_keys = stack_keys
@@ -616,6 +689,16 @@ class CustomSACPolicy(SACPolicy):
                             )
         )
         return CustomContinuousCritic(**critic_kwargs).to(self.device)
+
+    def obs_to_tensor(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[th.Tensor, bool]:
+        if isinstance(observation, dict):
+            observation = dict(observation)
+            if "prev_action" in observation and "prev_action" not in self.observation_space.spaces and "action" in self.observation_space.spaces:
+                observation["action"] = observation["prev_action"]
+            elif "action" in observation and "action" not in self.observation_space.spaces and "prev_action" in self.observation_space.spaces:
+                observation["prev_action"] = observation["action"]
+            observation = {k: v for k, v in observation.items() if k in self.observation_space.spaces}
+        return super().obs_to_tensor(observation)
 
 
 # ============================================================================
@@ -930,6 +1013,11 @@ class CustomSAC(SAC):
                 remapped[new_k] = v
             params["policy"] = remapped
 
+            # If checkpoint has no LSTM / temporal_encoder weights, don't require exact match on temporal_encoder
+            has_lstm = any(".lstm." in k or ".temporal_encoder." in k for k in remapped.keys())
+            if not has_lstm:
+                exact_match = False
+
         super().set_parameters(params, exact_match=exact_match, device=device)
 
     @classmethod
@@ -944,6 +1032,14 @@ class CustomSAC(SAC):
         **kwargs,
     ):
         """Loads CustomSAC model with automatic observation space reconciliation for action/prev_action."""
+        if custom_objects is None:
+            custom_objects = {}
+        else:
+            custom_objects = dict(custom_objects)
+
+        if env is not None and "action_space" not in custom_objects and hasattr(env, "action_space"):
+            custom_objects["action_space"] = env.action_space
+
         from stable_baselines3.common.save_util import load_from_zip_file
         data, _, _ = load_from_zip_file(
             path,
@@ -951,6 +1047,11 @@ class CustomSAC(SAC):
             custom_objects=custom_objects,
             print_system_info=print_system_info,
         )
+
+        if "action_space" not in data and env is not None and hasattr(env, "action_space"):
+            custom_objects["action_space"] = env.action_space
+        if "observation_space" not in data and env is not None and hasattr(env, "observation_space"):
+            custom_objects["observation_space"] = env.observation_space
 
         if env is not None and isinstance(data.get("observation_space"), spaces.Dict):
             saved_keys = set(data["observation_space"].spaces.keys())
