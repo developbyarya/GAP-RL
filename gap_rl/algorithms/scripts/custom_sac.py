@@ -1002,13 +1002,14 @@ class CustomSAC(SAC):
 
         if "policy" in params:
             remapped = {}
+            target_keys = set(self.policy.state_dict().keys())
             for k, v in params["policy"].items():
                 new_k = k
                 if ".lstm." in new_k and ".temporal_encoder.lstm." not in new_k:
                     new_k = new_k.replace(".lstm.", ".temporal_encoder.lstm.")
-                if ".state_map.weight" in new_k:
+                if ".state_map.weight" in new_k and any(".state_map.0.weight" in tk for tk in target_keys):
                     new_k = new_k.replace(".state_map.weight", ".state_map.0.weight")
-                if ".state_map.bias" in new_k:
+                if ".state_map.bias" in new_k and any(".state_map.0.bias" in tk for tk in target_keys):
                     new_k = new_k.replace(".state_map.bias", ".state_map.0.bias")
                 remapped[new_k] = v
             params["policy"] = remapped
@@ -1041,7 +1042,7 @@ class CustomSAC(SAC):
             custom_objects["action_space"] = env.action_space
 
         from stable_baselines3.common.save_util import load_from_zip_file
-        data, _, _ = load_from_zip_file(
+        data, params, _ = load_from_zip_file(
             path,
             device=device,
             custom_objects=custom_objects,
@@ -1052,6 +1053,16 @@ class CustomSAC(SAC):
             custom_objects["action_space"] = env.action_space
         if "observation_space" not in data and env is not None and hasattr(env, "observation_space"):
             custom_objects["observation_space"] = env.observation_space
+
+        # If checkpoint contains LSTM weights, ensure use_lstm is set in policy_kwargs
+        if params and "policy" in params:
+            has_lstm = any(".lstm." in k or ".temporal_encoder." in k for k in params["policy"].keys())
+            if has_lstm:
+                if "policy_kwargs" not in data or data["policy_kwargs"] is None:
+                    data["policy_kwargs"] = {}
+                data["policy_kwargs"]["use_lstm"] = True
+                if "policy_kwargs" in custom_objects and custom_objects["policy_kwargs"] is not None:
+                    custom_objects["policy_kwargs"]["use_lstm"] = True
 
         if env is not None and isinstance(data.get("observation_space"), spaces.Dict):
             saved_keys = set(data["observation_space"].spaces.keys())
