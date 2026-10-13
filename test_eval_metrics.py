@@ -300,10 +300,123 @@ def test_compare_runs_mcnemar():
     print("  -> Passed!")
 
 
+def test_miss_grasp_metrics():
+    print("Testing closest gripper position on miss grasp tracking...")
+    # 1. Failed episode: gripper approaches object but misses grasp
+    tracker_fail = EpisodeMetricsTracker(max_steps=5)
+    obj_pos = np.array([0.0, 0.0, 0.0])
+    # Trajectory of TCP positions: step 2 is closest
+    tcp_positions = [
+        np.array([0.0, 0.0, 0.5]),
+        np.array([0.0, 0.0, 0.2]),
+        np.array([0.01, -0.02, 0.03]), # dist = sqrt(0.0001 + 0.0004 + 0.0009) = sqrt(0.0014) ~ 0.03741657
+        np.array([0.05, 0.0, 0.1]),
+        np.array([0.1, 0.0, 0.2]),
+    ]
+
+    for t in range(5):
+        tracker_fail.record_step(
+            step=t,
+            action=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8]), # gripper closing
+            info={
+                "is_success": 0,
+                "is_info_exist": 1,
+                "gripper_finger_contacts": [0, 0],
+                "evaluate_info": [0, 0, 0, 0], # no grasp
+            },
+            timing_ms={},
+            tcp_pos=tcp_positions[t],
+            tcp_rot=[0.0, 0.1, 0.2],
+            obj_pos=obj_pos,
+            obj_rot=[0.0, 0.0, 0.0],
+            gripper_width=0.045,
+        )
+
+    rec_fail, _, _ = tracker_fail.finalize()
+    assert rec_fail["miss_grasp"]["is_miss_grasp"] == 1
+    assert rec_fail["miss_grasp"]["closest_step"] == 2
+    expected_dist = float(np.linalg.norm(tcp_positions[2] - obj_pos))
+    assert abs(rec_fail["miss_grasp"]["min_dist"] - expected_dist) < 1e-5
+    assert abs(rec_fail["miss_grasp_min_dist"] - expected_dist) < 1e-5
+    assert rec_fail["miss_grasp_closest_step"] == 2
+
+    # Offset vector: obj_pos - tcp_pos = [-0.01, 0.02, -0.03]
+    assert abs(rec_fail["miss_grasp"]["offset_dx"] - (-0.01)) < 1e-5
+    assert abs(rec_fail["miss_grasp"]["offset_dy"] - 0.02) < 1e-5
+    assert abs(rec_fail["miss_grasp"]["offset_dz"] - (-0.03)) < 1e-5
+    assert abs(rec_fail["miss_grasp_offset_dx"] - (-0.01)) < 1e-5
+    assert abs(rec_fail["miss_grasp_tcp_x"] - 0.01) < 1e-5
+    assert abs(rec_fail["miss_grasp_obj_x"] - 0.0) < 1e-5
+    assert abs(rec_fail["miss_grasp"]["gripper_width"] - 0.045) < 1e-5
+    assert abs(rec_fail["miss_grasp"]["gripper_action"] - 0.8) < 1e-5
+    assert rec_fail["miss_grasp"]["has_contact"] == 0
+
+    # 2. Successful episode: achieved grasp and lifted
+    tracker_succ = EpisodeMetricsTracker(max_steps=3)
+    for t in range(3):
+        tracker_succ.record_step(
+            step=t,
+            action=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+            info={
+                "is_success": 1 if t == 2 else 0,
+                "is_info_exist": 1,
+                "gripper_finger_contacts": [1, 1],
+                "evaluate_info": [1, 1, 1, 1], # grasped & lifted
+            },
+            timing_ms={},
+            tcp_pos=np.array([0.0, 0.0, 0.02]),
+            obj_pos=np.array([0.0, 0.0, 0.02]),
+            gripper_width=0.01,
+        )
+
+    rec_succ, _, _ = tracker_succ.finalize()
+    assert rec_succ["miss_grasp"]["is_miss_grasp"] == 0
+    assert np.isnan(rec_succ["miss_grasp"]["min_dist"])
+    assert np.isnan(rec_succ["miss_grasp_min_dist"])
+    assert rec_succ["miss_grasp"]["closest_step"] == -1
+    # But closest_gripper_snapshot is still recorded!
+    assert abs(rec_succ["closest_gripper_snapshot"]["distance"] - 0.0) < 1e-5
+
+    # 3. Fallback when telemetry is in info dict
+    tracker_info = EpisodeMetricsTracker(max_steps=2)
+    tracker_info.record_step(
+        step=0,
+        action=np.zeros(7),
+        info={
+            "is_success": 0,
+            "is_info_exist": 1,
+            "tcp_pose": [0.1, 0.2, 0.3, 0.0, 0.0, 0.0],
+            "obj_pos": [0.1, 0.2, 0.35],
+            "evaluate_info": [0, 0, 0, 0],
+        },
+        timing_ms={},
+    )
+    rec_info, _, _ = tracker_info.finalize()
+    assert rec_info["miss_grasp"]["is_miss_grasp"] == 1
+    assert abs(rec_info["miss_grasp"]["min_dist"] - 0.05) < 1e-5
+    assert abs(rec_info["miss_grasp"]["offset_dz"] - 0.05) < 1e-5
+
+    # 4. RunMetricsAggregator
+    agg = RunMetricsAggregator()
+    agg.add_episode(rec_fail)
+    agg.add_episode(rec_succ)
+    summary = agg.compute_summary()
+
+    miss_analysis = summary["miss_grasp_analysis"]
+    assert miss_analysis["num_miss_grasps"] == 1
+    assert abs(miss_analysis["miss_grasp_rate"] - 0.5) < 1e-5
+    assert abs(miss_analysis["min_dist"]["mean"] - expected_dist) < 1e-5
+    assert abs(miss_analysis["offset_dx"]["mean"] - (-0.01)) < 1e-5
+    assert abs(miss_analysis["gripper_width_at_closest"]["mean"] - 0.045) < 1e-5
+    assert "miss_grasp_min_dist" in summary["control_quality"]
+    print("  -> Passed!")
+
+
 if __name__ == "__main__":
     test_statistics()
     test_geometry_and_rotmat_error()
     test_window_ablation()
     test_episode_tracking_and_funnel()
     test_compare_runs_mcnemar()
+    test_miss_grasp_metrics()
     print("\nALL UNIT TESTS PASSED SUCCESSFULLY!")

@@ -610,6 +610,31 @@ if __name__ == "__main__":
                                     grasps_ee, grasps_scores = record_env.unwrapped._compute_near_grasps_rt()
                                     preg_gg_ee_list[model_id][num].append(grasps_ee)
 
+                                # Extract telemetry for closest approach & miss-grasp tracking
+                                tcp_pos = None
+                                tcp_rot = None
+                                obj_pos = None
+                                obj_rot = None
+                                gripper_width = None
+                                try:
+                                    env_u = getattr(record_env, "unwrapped", record_env)
+                                    tcp_ent = getattr(record_env, "tcp", getattr(env_u, "tcp", None))
+                                    if tcp_ent is not None and hasattr(tcp_ent, "pose"):
+                                        tcp_pos = np.asarray(tcp_ent.pose.p, dtype=np.float32)
+                                        tcp_quat = tcp_ent.pose.q
+                                        tcp_rot = R.from_quat(np.roll(tcp_quat, -1)).as_euler("XYZ").astype(np.float32)
+
+                                    obj_pose_val = getattr(record_env, "obj_pose", getattr(env_u, "obj_pose", None))
+                                    if obj_pose_val is not None and hasattr(obj_pose_val, "p"):
+                                        obj_pos = np.asarray(obj_pose_val.p, dtype=np.float32)
+                                        if hasattr(obj_pose_val, "q"):
+                                            obj_rot = R.from_quat(np.roll(obj_pose_val.q, -1)).as_euler("XYZ").astype(np.float32)
+
+                                    if "gripper_pos" in obs:
+                                        gripper_width = float(np.mean(obs["gripper_pos"]))
+                                except Exception:
+                                    pass
+
                                 # Record step metrics
                                 valid_frames = get_valid_frames_count(obs, n_stack=n_stack if is_goal_aux else 1)
                                 tracker.record_step(
@@ -626,6 +651,11 @@ if __name__ == "__main__":
                                     latent_vector=latent_vec,
                                     aux_metrics=aux_metrics,
                                     critic_q_min=critic_q_min,
+                                    tcp_pos=tcp_pos,
+                                    tcp_rot=tcp_rot,
+                                    obj_pos=obj_pos,
+                                    obj_rot=obj_rot,
+                                    gripper_width=gripper_width,
                                 )
 
                                 if not success_flag and info['is_success']:

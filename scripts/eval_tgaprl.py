@@ -34,7 +34,7 @@ import pickle
 import csv
 from collections import defaultdict
 
-def compute_metrics(flags_history, heights_history):
+def compute_metrics(flags_history, heights_history, tcp_pos_history=None, obj_pos_history=None):
     # flags_history: list of [is_robot_static, is_obj_grasp, is_obj_static, is_obj_lift]
     flags = np.array(flags_history, dtype=bool)
     is_robot_static = flags[:, 0]
@@ -71,6 +71,30 @@ def compute_metrics(flags_history, heights_history):
             
     peak_height = np.max(heights_history)
     
+    miss_min_dist = float("nan")
+    miss_closest_step = -1
+    miss_dx, miss_dy, miss_dz = float("nan"), float("nan"), float("nan")
+    miss_tcp_x, miss_tcp_y, miss_tcp_z = float("nan"), float("nan"), float("nan")
+    miss_obj_x, miss_obj_y, miss_obj_z = float("nan"), float("nan"), float("nan")
+
+    if not grasp_ever and tcp_pos_history is not None and obj_pos_history is not None and len(tcp_pos_history) > 0:
+        tcps = np.asarray(tcp_pos_history)
+        objs = np.asarray(obj_pos_history)
+        if tcps.ndim == 2 and objs.ndim == 2 and len(tcps) == len(objs):
+            dists = np.linalg.norm(tcps - objs, axis=1)
+            min_idx = int(np.argmin(dists))
+            miss_min_dist = float(dists[min_idx])
+            miss_closest_step = min_idx
+            miss_dx = float(objs[min_idx, 0] - tcps[min_idx, 0])
+            miss_dy = float(objs[min_idx, 1] - tcps[min_idx, 1])
+            miss_dz = float(objs[min_idx, 2] - tcps[min_idx, 2])
+            miss_tcp_x = float(tcps[min_idx, 0])
+            miss_tcp_y = float(tcps[min_idx, 1])
+            miss_tcp_z = float(tcps[min_idx, 2])
+            miss_obj_x = float(objs[min_idx, 0])
+            miss_obj_y = float(objs[min_idx, 1])
+            miss_obj_z = float(objs[min_idx, 2])
+
     return {
         "success_terminal": bool(success_terminal),
         "grasp_without_lift": bool(grasp_without_lift),
@@ -79,6 +103,17 @@ def compute_metrics(flags_history, heights_history):
         "late_success_timing": int(late_success_timing),
         "stable_then_dropped": bool(stable_then_dropped),
         "peak_height": float(peak_height),
+        "miss_grasp_min_dist": miss_min_dist,
+        "miss_grasp_closest_step": miss_closest_step,
+        "miss_grasp_offset_dx": miss_dx,
+        "miss_grasp_offset_dy": miss_dy,
+        "miss_grasp_offset_dz": miss_dz,
+        "miss_grasp_tcp_x": miss_tcp_x,
+        "miss_grasp_tcp_y": miss_tcp_y,
+        "miss_grasp_tcp_z": miss_tcp_z,
+        "miss_grasp_obj_x": miss_obj_x,
+        "miss_grasp_obj_y": miss_obj_y,
+        "miss_grasp_obj_z": miss_obj_z,
     }
 
 def filter_grasp(world_gg, ee_gg, ground_offset=0.05, z_rot_offset=0):
@@ -420,6 +455,8 @@ if __name__ == "__main__":
                             
                             ep_flags = []
                             ep_heights = []
+                            ep_tcp_positions = []
+                            ep_obj_positions = []
 
                             for step in tqdm(range(args.max_steps), desc=f'Processing 2M', colour='green', leave=False):
                                 ## grasps_ee as mat form
@@ -479,6 +516,8 @@ if __name__ == "__main__":
                                     
                                 ep_flags.append(record_env.unwrapped.evaluate_success())
                                 ep_heights.append(record_env.unwrapped.obj.pose.p[2])
+                                ep_tcp_positions.append(np.array(record_env.tcp.pose.p, copy=True))
+                                ep_obj_positions.append(np.array(record_env.unwrapped.obj.pose.p, copy=True))
 
                                 if args.save_all_grasp:
                                     grasps_ee, grasps_scores = record_env.unwrapped._compute_near_grasps_rt()
@@ -499,7 +538,7 @@ if __name__ == "__main__":
                                 t = time.time()
                                 
                             # === Episode Metrics Computation ===
-                            ep_metrics = compute_metrics(ep_flags, ep_heights)
+                            ep_metrics = compute_metrics(ep_flags, ep_heights, ep_tcp_positions, ep_obj_positions)
                             all_ep_metrics.append(ep_metrics)
                             # ===================================
 

@@ -344,6 +344,10 @@ class EpisodeMetricsTracker:
         self.min_rot_dist = float("inf")
         self.min_rot_step = -1
 
+        # Closest approach tracking (especially for miss grasp diagnosis)
+        self.min_tcp_obj_dist = float("inf")
+        self.closest_gripper_snapshot: Optional[Dict[str, Any]] = None
+
         self.final_info: Dict[str, Any] = {}
 
     def record_step(
@@ -357,6 +361,11 @@ class EpisodeMetricsTracker:
         latent_vector: Optional[np.ndarray] = None,
         aux_metrics: Optional[Dict[str, float]] = None,
         critic_q_min: Optional[float] = None,
+        tcp_pos: Optional[Union[np.ndarray, Sequence[float]]] = None,
+        tcp_rot: Optional[Union[np.ndarray, Sequence[float]]] = None,
+        obj_pos: Optional[Union[np.ndarray, Sequence[float]]] = None,
+        obj_rot: Optional[Union[np.ndarray, Sequence[float]]] = None,
+        gripper_width: Optional[float] = None,
     ):
         """Records data for a single rollout step."""
         self.actions.append(np.array(action, copy=True))
@@ -527,6 +536,68 @@ class EpisodeMetricsTracker:
                 "rel_speed": rel_speed,
             }
 
+        # Closest approach tracking (diagnostics for miss grasp and proximity)
+        tcp_pos_arr = None
+        if tcp_pos is not None:
+            tcp_pos_arr = np.asarray(tcp_pos, dtype=np.float32).flatten()[:3]
+        elif "tcp_pose" in info and len(info["tcp_pose"]) >= 3:
+            tcp_pos_arr = np.asarray(info["tcp_pose"], dtype=np.float32).flatten()[:3]
+
+        tcp_rot_arr = None
+        if tcp_rot is not None:
+            tcp_rot_arr = np.asarray(tcp_rot, dtype=np.float32).flatten()
+        elif "tcp_pose" in info and len(info["tcp_pose"]) >= 6:
+            tcp_rot_arr = np.asarray(info["tcp_pose"], dtype=np.float32).flatten()[3:6]
+
+        obj_pos_arr = None
+        if obj_pos is not None:
+            obj_pos_arr = np.asarray(obj_pos, dtype=np.float32).flatten()[:3]
+        elif "obj_pos" in info:
+            obj_pos_arr = np.asarray(info["obj_pos"], dtype=np.float32).flatten()[:3]
+        elif "obj_pose" in info:
+            op = info["obj_pose"]
+            if hasattr(op, "p"):
+                obj_pos_arr = np.asarray(op.p, dtype=np.float32).flatten()[:3]
+            else:
+                obj_pos_arr = np.asarray(op, dtype=np.float32).flatten()[:3]
+
+        obj_rot_arr = None
+        if obj_rot is not None:
+            obj_rot_arr = np.asarray(obj_rot, dtype=np.float32).flatten()
+        elif "obj_pose" in info:
+            op = info["obj_pose"]
+            if hasattr(op, "q"):
+                obj_rot_arr = np.asarray(op.q, dtype=np.float32).flatten()
+
+        if tcp_pos_arr is not None and obj_pos_arr is not None:
+            dist_to_obj = float(np.linalg.norm(tcp_pos_arr - obj_pos_arr))
+        elif not np.isnan(td):
+            dist_to_obj = float(td)
+        else:
+            dist_to_obj = float("nan")
+
+        if not np.isnan(dist_to_obj) and dist_to_obj < self.min_tcp_obj_dist:
+            self.min_tcp_obj_dist = dist_to_obj
+            offset_vec = None
+            if tcp_pos_arr is not None and obj_pos_arr is not None:
+                offset_vec = [float(x) for x in (obj_pos_arr - tcp_pos_arr)]
+
+            self.closest_gripper_snapshot = {
+                "step": step,
+                "distance": float(dist_to_obj),
+                "tcp_pos": [float(x) for x in tcp_pos_arr] if tcp_pos_arr is not None else None,
+                "tcp_rot": [float(x) for x in tcp_rot_arr] if tcp_rot_arr is not None else None,
+                "obj_pos": [float(x) for x in obj_pos_arr] if obj_pos_arr is not None else None,
+                "obj_rot": [float(x) for x in obj_rot_arr] if obj_rot_arr is not None else None,
+                "offset_vector": offset_vec,
+                "offset_dx": offset_vec[0] if offset_vec is not None else float("nan"),
+                "offset_dy": offset_vec[1] if offset_vec is not None else float("nan"),
+                "offset_dz": offset_vec[2] if offset_vec is not None else float("nan"),
+                "gripper_width": float(gripper_width) if gripper_width is not None else float("nan"),
+                "gripper_action": float(action[gripper_dim_idx]),
+                "has_contact": bool(has_finger_contact),
+            }
+
         self.final_info = deepcopy(info)
 
     def finalize(self) -> Dict[str, Any]:
@@ -624,6 +695,45 @@ class EpisodeMetricsTracker:
 
         mean_valid_frames = float(np.mean(self.valid_frames_curve)) if self.valid_frames_curve else float("nan")
 
+        # Miss grasp classification & snapshot (closest gripper position on failed grasp)
+        is_miss_grasp = bool(not self.stage_reached["is_obj_grasp"])
+        if self.closest_gripper_snapshot is not None:
+            snap = self.closest_gripper_snapshot
+        else:
+            snap = {
+                "step": -1,
+                "distance": float("nan"),
+                "tcp_pos": None,
+                "tcp_rot": None,
+                "obj_pos": None,
+                "obj_rot": None,
+                "offset_vector": None,
+                "offset_dx": float("nan"),
+                "offset_dy": float("nan"),
+                "offset_dz": float("nan"),
+                "gripper_width": float("nan"),
+                "gripper_action": float("nan"),
+                "has_contact": False,
+            }
+
+        miss_grasp_record = {
+            "is_miss_grasp": int(is_miss_grasp),
+            "failure_label": failure_label,
+            "min_dist": snap["distance"] if is_miss_grasp else float("nan"),
+            "closest_step": snap["step"] if is_miss_grasp else -1,
+            "tcp_pos": snap["tcp_pos"] if is_miss_grasp else None,
+            "tcp_rot": snap["tcp_rot"] if is_miss_grasp else None,
+            "obj_pos": snap["obj_pos"] if is_miss_grasp else None,
+            "obj_rot": snap["obj_rot"] if is_miss_grasp else None,
+            "offset_vector": snap["offset_vector"] if is_miss_grasp else None,
+            "offset_dx": snap["offset_dx"] if is_miss_grasp else float("nan"),
+            "offset_dy": snap["offset_dy"] if is_miss_grasp else float("nan"),
+            "offset_dz": snap["offset_dz"] if is_miss_grasp else float("nan"),
+            "gripper_width": snap["gripper_width"] if is_miss_grasp else float("nan"),
+            "gripper_action": snap["gripper_action"] if is_miss_grasp else float("nan"),
+            "has_contact": int(snap["has_contact"]) if is_miss_grasp else 0,
+        }
+
         record = {
             "success_any": int(self.success_any),
             "success_final": int(self.success_final),
@@ -640,6 +750,19 @@ class EpisodeMetricsTracker:
             "min_rot_step": self.min_rot_step,
             "first_contact": self.first_contact_snapshot,
             "first_gripper_close": self.first_gripper_close_snapshot,
+            "closest_gripper_snapshot": snap,
+            "miss_grasp": miss_grasp_record,
+            "miss_grasp_min_dist": miss_grasp_record["min_dist"],
+            "miss_grasp_closest_step": miss_grasp_record["closest_step"],
+            "miss_grasp_offset_dx": miss_grasp_record["offset_dx"],
+            "miss_grasp_offset_dy": miss_grasp_record["offset_dy"],
+            "miss_grasp_offset_dz": miss_grasp_record["offset_dz"],
+            "miss_grasp_tcp_x": snap["tcp_pos"][0] if (is_miss_grasp and snap["tcp_pos"] is not None) else float("nan"),
+            "miss_grasp_tcp_y": snap["tcp_pos"][1] if (is_miss_grasp and snap["tcp_pos"] is not None) else float("nan"),
+            "miss_grasp_tcp_z": snap["tcp_pos"][2] if (is_miss_grasp and snap["tcp_pos"] is not None) else float("nan"),
+            "miss_grasp_obj_x": snap["obj_pos"][0] if (is_miss_grasp and snap["obj_pos"] is not None) else float("nan"),
+            "miss_grasp_obj_y": snap["obj_pos"][1] if (is_miss_grasp and snap["obj_pos"] is not None) else float("nan"),
+            "miss_grasp_obj_z": snap["obj_pos"][2] if (is_miss_grasp and snap["obj_pos"] is not None) else float("nan"),
             "mean_obj_lin_speed": mean_obj_lin_speed,
             "mean_obj_ang_speed": mean_obj_ang_speed,
             "action_diff_mean": action_diff_mean,
@@ -772,44 +895,49 @@ class RunMetricsAggregator:
             "mean_obj_ang_speed",
             "min_trans_dist",
             "min_rot_dist",
+            "miss_grasp_min_dist",
+            "miss_grasp_offset_dx",
+            "miss_grasp_offset_dy",
+            "miss_grasp_offset_dz",
         ]
+        def _clean_mean_ci(vals: Sequence[Any]) -> Tuple[float, Tuple[float, float]]:
+            clean = [float(x) for x in vals if x is not None and not np.isnan(x)]
+            if not clean:
+                return float("nan"), (float("nan"), float("nan"))
+            return float(np.mean(clean)), bootstrap_mean_ci(clean)
+
         scalar_summary = {}
         for sk in scalar_keys:
             vals = [r.get(sk) for r in records if r.get(sk) is not None]
-            m = float(np.nanmean(vals)) if vals else float("nan")
-            ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+            m, ci = _clean_mean_ci(vals)
             scalar_summary[sk] = {"mean": m, "ci95": ci}
 
         # Timings
         timing_summary = {}
         for tk in ["grasp_gen_mean", "grasp_gen_p95", "predict_mean", "predict_p95", "env_step_mean", "env_step_p95"]:
             vals = [r.get("timing_ms", {}).get(tk) for r in records]
-            m = float(np.nanmean(vals)) if vals else float("nan")
-            ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+            m, ci = _clean_mean_ci(vals)
             timing_summary[tk] = {"mean": m, "ci95": ci}
 
         # Temporal sensitivities
         temporal_summary = {}
         for temp_k in ["cf_diff_repeat_last", "cf_diff_shuffle", "cf_diff_reverse", "mean_valid_frames_in_window"]:
             vals = [r.get("temporal", {}).get(temp_k) for r in records]
-            m = float(np.nanmean(vals)) if vals else float("nan")
-            ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+            m, ci = _clean_mean_ci(vals)
             temporal_summary[temp_k] = {"mean": m, "ci95": ci}
 
         # Latent diagnostics
         latent_summary = {}
         for lk in ["mean_ht_norm", "mean_ht_cos_sim", "effective_rank"]:
             vals = [r.get("latent", {}).get(lk) for r in records]
-            m = float(np.nanmean(vals)) if vals else float("nan")
-            ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+            m, ci = _clean_mean_ci(vals)
             latent_summary[lk] = {"mean": m, "ci95": ci}
 
         # Aux predictions and critic Q
         aux_summary = {}
         for ak in ["actor_aux_pose_err", "critic_aux_pose_err", "target_pred_acc"]:
             vals = [r.get("aux_head", {}).get(ak) for r in records]
-            m = float(np.nanmean(vals)) if vals else float("nan")
-            ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+            m, ci = _clean_mean_ci(vals)
             aux_summary[ak] = {"mean": m, "ci95": ci}
 
         # Critic Q splits and AUROC
@@ -834,6 +962,10 @@ class RunMetricsAggregator:
             if not r["success_any"] and r.get("aux_head", {}).get("critic_q_first_contact") is not None
         ]
 
+        def _clean_mean(vals: Sequence[Any]) -> float:
+            clean = [float(x) for x in vals if x is not None and not np.isnan(x)]
+            return float(np.mean(clean)) if clean else float("nan")
+
         auroc_q_step0 = compute_auroc(
             [r["success_any"] for r in records],
             [r.get("aux_head", {}).get("critic_q_step0") for r in records],
@@ -844,10 +976,10 @@ class RunMetricsAggregator:
         )
 
         critic_q_summary = {
-            "q_step0_success_mean": float(np.nanmean(q_step0_succ)) if q_step0_succ else float("nan"),
-            "q_step0_fail_mean": float(np.nanmean(q_step0_fail)) if q_step0_fail else float("nan"),
-            "q_contact_success_mean": float(np.nanmean(q_contact_succ)) if q_contact_succ else float("nan"),
-            "q_contact_fail_mean": float(np.nanmean(q_contact_fail)) if q_contact_fail else float("nan"),
+            "q_step0_success_mean": _clean_mean(q_step0_succ),
+            "q_step0_fail_mean": _clean_mean(q_step0_fail),
+            "q_contact_success_mean": _clean_mean(q_contact_succ),
+            "q_contact_fail_mean": _clean_mean(q_contact_fail),
             "auroc_q_step0": auroc_q_step0,
             "auroc_q_contact": auroc_q_contact,
         }
@@ -862,10 +994,61 @@ class RunMetricsAggregator:
                     for r in records
                     if r.get(snap_name) is not None
                 ]
-                m = float(np.nanmean(vals)) if vals else float("nan")
-                ci = bootstrap_mean_ci(vals) if vals else (float("nan"), float("nan"))
+                m, ci = _clean_mean_ci(vals)
                 sub_dict[metric_k] = {"mean": m, "ci95": ci}
             snapshot_summary[snap_name] = sub_dict
+
+        # Miss Grasp Aggregates (closest gripper approach on failed grasps)
+        miss_records = [
+            r for r in records
+            if r.get("miss_grasp", {}).get("is_miss_grasp", 0) > 0
+        ]
+        num_miss = len(miss_records)
+
+        def _safe_mean_ci(vals: Sequence[Union[float, int]]) -> Dict[str, Any]:
+            clean = [float(v) for v in vals if v is not None and not np.isnan(v)]
+            if not clean:
+                return {"mean": float("nan"), "ci95": (float("nan"), float("nan"))}
+            return {
+                "mean": float(np.mean(clean)),
+                "ci95": bootstrap_mean_ci(clean),
+            }
+
+        if num_miss > 0:
+            m_dists = [r["miss_grasp"]["min_dist"] for r in miss_records]
+            m_steps = [r["miss_grasp"]["closest_step"] for r in miss_records if r["miss_grasp"]["closest_step"] >= 0]
+            m_dxs = [r["miss_grasp"]["offset_dx"] for r in miss_records]
+            m_dys = [r["miss_grasp"]["offset_dy"] for r in miss_records]
+            m_dzs = [r["miss_grasp"]["offset_dz"] for r in miss_records]
+            m_widths = [r["miss_grasp"]["gripper_width"] for r in miss_records]
+            m_acts = [r["miss_grasp"]["gripper_action"] for r in miss_records]
+            m_contacts = sum(r["miss_grasp"].get("has_contact", 0) for r in miss_records)
+
+            miss_grasp_summary = {
+                "num_miss_grasps": num_miss,
+                "miss_grasp_rate": float(num_miss) / float(n),
+                "min_dist": _safe_mean_ci(m_dists),
+                "closest_step": _safe_mean_ci(m_steps),
+                "offset_dx": _safe_mean_ci(m_dxs),
+                "offset_dy": _safe_mean_ci(m_dys),
+                "offset_dz": _safe_mean_ci(m_dzs),
+                "gripper_width_at_closest": _safe_mean_ci(m_widths),
+                "gripper_action_at_closest": _safe_mean_ci(m_acts),
+                "contact_at_closest_ratio": float(m_contacts) / float(num_miss),
+            }
+        else:
+            miss_grasp_summary = {
+                "num_miss_grasps": 0,
+                "miss_grasp_rate": 0.0,
+                "min_dist": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "closest_step": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "offset_dx": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "offset_dy": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "offset_dz": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "gripper_width_at_closest": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "gripper_action_at_closest": {"mean": float("nan"), "ci95": (float("nan"), float("nan"))},
+                "contact_at_closest_ratio": 0.0,
+            }
 
         # Object speed stratification
         speed_strat = self._stratify_by_speed(records)
@@ -896,6 +1079,7 @@ class RunMetricsAggregator:
             "aux_head": aux_summary,
             "critic_q": critic_q_summary,
             "snapshots": snapshot_summary,
+            "miss_grasp_analysis": miss_grasp_summary,
             "speed_stratification": speed_strat,
         }
 
