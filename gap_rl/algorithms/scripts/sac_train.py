@@ -58,6 +58,7 @@ if __name__ == "__main__":
         help="Temporal architecture mode: 'windowed' (all keys stacked) or 'decoupled' (only kinematics stacked).",
     )
     parser.add_argument("--lstm-hidden-dim", type=int, default=None, help="Hidden dimension for kinematics LSTM in decoupled mode.")
+    parser.add_argument("--n-stack", type=int, default=None, help="Number of frames to stack into temporal window (overrides config).")
 
     args = parser.parse_args()
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
         cfg = yaml.load(fin, Loader=yaml.FullLoader)
     is_goal_aux = cfg.get("goal_aux", False)
     share_feat = cfg.get("share_feat", True)
-    n_stack = cfg.get("n_stack", 4 if is_goal_aux else 1)
+    n_stack = args.n_stack if args.n_stack is not None else cfg.get("n_stack", 4 if is_goal_aux else 1)
     cfg["n_stack"] = n_stack
 
     temporal_mode = args.temporal_mode or cfg.get("temporal_mode", "decoupled" if args.use_lstm else "windowed")

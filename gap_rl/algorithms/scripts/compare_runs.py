@@ -18,7 +18,7 @@ import numpy as np
 
 
 def load_records(file_path: str) -> List[Dict[str, Any]]:
-    """Loads episode records from JSONL or JSON file, or searches all episodes.jsonl if given a directory."""
+    """Loads episode records from JSONL, JSON, CSV file, or searches all episodes.jsonl if given a directory."""
     records = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -34,6 +34,26 @@ def load_records(file_path: str) -> List[Dict[str, Any]]:
         for jf in sorted(jsonl_files):
             all_recs.extend(load_records(jf))
         return all_recs
+
+    if file_path.endswith(".csv"):
+        import csv
+        with open(file_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                parsed_row: Dict[str, Any] = {}
+                for k, v in row.items():
+                    if v == "" or v is None:
+                        parsed_row[k] = None
+                        continue
+                    try:
+                        if "." in v or "e" in v.lower():
+                            parsed_row[k] = float(v)
+                        else:
+                            parsed_row[k] = int(v)
+                    except (ValueError, TypeError):
+                        parsed_row[k] = v
+                records.append(parsed_row)
+        return records
 
     with open(file_path, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, start=1):
@@ -59,11 +79,19 @@ def load_records(file_path: str) -> List[Dict[str, Any]]:
 
 
 def get_episode_key(record: Dict[str, Any]) -> Tuple[Any, Any, Any, Any]:
-    traj = record.get("gen_traj_mode") or record.get("traj_mode")
+    traj = record.get("gen_traj_mode") or record.get("traj_mode") or record.get("trajectory")
     model_id = record.get("model_id")
     seed = record.get("seed")
     epi_seed = record.get("episode_seed")
-    return (traj, model_id, seed, epi_seed)
+    try:
+        seed = int(seed) if seed is not None else None
+    except (ValueError, TypeError):
+        pass
+    try:
+        epi_seed = int(epi_seed) if epi_seed is not None else None
+    except (ValueError, TypeError):
+        pass
+    return (str(traj) if traj is not None else None, str(model_id) if model_id is not None else None, seed, epi_seed)
 
 
 def exact_mcnemar_p_value(b: int, c: int) -> float:
@@ -132,9 +160,51 @@ def format_table(headers: List[str], rows: List[List[str]]) -> str:
     return f"{header_str}\n{separator}\n" + "\n".join(row_strs)
 
 
-def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "Run 2") -> Dict[str, Any]:
+def compare(
+    run1_path: str,
+    run2_path: str,
+    name1: str = "Run 1",
+    name2: str = "Run 2",
+    model_name1: Optional[str] = None,
+    model_name2: Optional[str] = None,
+    traj: Optional[str] = None,
+) -> Dict[str, Any]:
     recs1 = load_records(run1_path)
     recs2 = load_records(run2_path)
+
+    if model_name1:
+        recs1 = [
+            r for r in recs1
+            if str(r.get("model_name")) == model_name1 or str(r.get("checkpoint")) == model_name1
+        ]
+    if model_name2:
+        recs2 = [
+            r for r in recs2
+            if str(r.get("model_name")) == model_name2 or str(r.get("checkpoint")) == model_name2
+        ]
+    if traj:
+        recs1 = [
+            r for r in recs1
+            if (r.get("gen_traj_mode") or r.get("traj_mode") or r.get("trajectory")) == traj
+        ]
+        recs2 = [
+            r for r in recs2
+            if (r.get("gen_traj_mode") or r.get("traj_mode") or r.get("trajectory")) == traj
+        ]
+
+    # Deduplicate by episode key (keeping first occurrence) in case files contain repeated runs
+    def dedup(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        out = []
+        for r in records:
+            k = get_episode_key(r)
+            if k not in seen:
+                seen.add(k)
+                out.append(r)
+        return out
+
+    recs1 = dedup(recs1)
+    recs2 = dedup(recs2)
 
     # Index by key
     indexed1 = {get_episode_key(r): r for r in recs1}
@@ -146,7 +216,13 @@ def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "
 
     print("=" * 80)
     print(f"RUN COMPARISON: {name1} vs {name2}")
-    print(f"Total episodes: {name1} = {len(recs1)}, {name2} = {len(recs2)}")
+    if model_name1:
+        print(f"Filter {name1} model_name: {model_name1}")
+    if model_name2:
+        print(f"Filter {name2} model_name: {model_name2}")
+    if traj:
+        print(f"Filter trajectory: {traj}")
+    print(f"Total unique episodes: {name1} = {len(recs1)}, {name2} = {len(recs2)}")
     if is_paired:
         print(f"Comparison Mode: PAIRED (All {len(common_keys)} episodes aligned exactly by seed)")
     elif partial_paired:
@@ -158,8 +234,8 @@ def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "
     # Success comparison
     if is_paired or partial_paired:
         pair_list = [(indexed1[k], indexed2[k]) for k in common_keys]
-        y1 = np.array([p[0]["success_any"] for p in pair_list], dtype=int)
-        y2 = np.array([p[1]["success_any"] for p in pair_list], dtype=int)
+        y1 = np.array([int(p[0].get("success_any", 0)) for p in pair_list], dtype=int)
+        y2 = np.array([int(p[1].get("success_any", 0)) for p in pair_list], dtype=int)
         n = len(y1)
 
         n11 = int(np.sum((y1 == 1) & (y2 == 1)))
@@ -178,8 +254,8 @@ def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "
             f"{name2} Only={n01}, Both Fail={n00}"
         )
     else:
-        y1 = np.array([r["success_any"] for r in recs1], dtype=int)
-        y2 = np.array([r["success_any"] for r in recs2], dtype=int)
+        y1 = np.array([int(r.get("success_any", 0)) for r in recs1], dtype=int)
+        y2 = np.array([int(r.get("success_any", 0)) for r in recs2], dtype=int)
         rate1 = float(np.mean(y1)) if len(y1) > 0 else 0.0
         rate2 = float(np.mean(y2)) if len(y2) > 0 else 0.0
         diff = rate1 - rate2
@@ -207,8 +283,8 @@ def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "
     f_headers = ["Funnel Stage", f"{name1} (%)", f"{name2} (%)", "Difference (pts)"]
     f_rows = []
     for fk in funnel_keys:
-        p1 = float(np.mean([r["stage_funnel"].get(fk, 0) for r in recs1])) * 100.0
-        p2 = float(np.mean([r["stage_funnel"].get(fk, 0) for r in recs2])) * 100.0
+        p1 = float(np.mean([(r.get("stage_funnel") or {}).get(fk, 0) if isinstance(r.get("stage_funnel"), dict) else 0 for r in recs1])) * 100.0 if recs1 else 0.0
+        p2 = float(np.mean([(r.get("stage_funnel") or {}).get(fk, 0) if isinstance(r.get("stage_funnel"), dict) else 0 for r in recs2])) * 100.0 if recs2 else 0.0
         f_diff = p1 - p2
         f_rows.append([fk, f"{p1:.1f}%", f"{p2:.1f}%", f"{f_diff:+.1f}"])
     print(format_table(f_headers, f_rows))
@@ -225,13 +301,13 @@ def compare(run1_path: str, run2_path: str, name1: str = "Run 1", name2: str = "
         "lifted_not_static",
         "other",
     ]
-    n_failed1 = sum(1 for r in recs1 if not r["success_any"])
-    n_failed2 = sum(1 for r in recs2 if not r["success_any"])
+    n_failed1 = sum(1 for r in recs1 if not r.get("success_any"))
+    n_failed2 = sum(1 for r in recs2 if not r.get("success_any"))
     fail_headers = ["Failure Label", f"{name1} (N={n_failed1})", f"{name2} (N={n_failed2})"]
     fail_rows = []
     for fk in fail_keys:
-        c1 = sum(1 for r in recs1 if r["failure_label"] == fk)
-        c2 = sum(1 for r in recs2 if r["failure_label"] == fk)
+        c1 = sum(1 for r in recs1 if r.get("failure_label") == fk)
+        c2 = sum(1 for r in recs2 if r.get("failure_label") == fk)
         pct1 = (float(c1) / n_failed1 * 100.0) if n_failed1 > 0 else 0.0
         pct2 = (float(c2) / n_failed2 * 100.0) if n_failed2 > 0 else 0.0
         fail_rows.append([fk, f"{c1} ({pct1:.1f}%)", f"{c2} ({pct2:.1f}%)"])
@@ -278,10 +354,21 @@ if __name__ == "__main__":
     parser.add_argument("run2", type=str, help="Path to run 2 episodes.jsonl")
     parser.add_argument("--name1", type=str, default="Run 1", help="Label for run 1")
     parser.add_argument("--name2", type=str, default="Run 2", help="Label for run 2")
+    parser.add_argument("--model-name1", type=str, default=None, help="Filter run 1 by model_name or checkpoint")
+    parser.add_argument("--model-name2", type=str, default=None, help="Filter run 2 by model_name or checkpoint")
+    parser.add_argument("--traj", type=str, default=None, help="Filter by trajectory mode (e.g. bezier2d, line, circle, circular)")
     parser.add_argument("--output", type=str, default=None, help="Optional output JSON path")
     args = parser.parse_args()
 
-    res = compare(args.run1, args.run2, name1=args.name1, name2=args.name2)
+    res = compare(
+        args.run1,
+        args.run2,
+        name1=args.name1,
+        name2=args.name2,
+        model_name1=args.model_name1,
+        model_name2=args.model_name2,
+        traj=args.traj,
+    )
     if args.output:
         os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
         with open(args.output, "w", encoding="utf-8") as f:

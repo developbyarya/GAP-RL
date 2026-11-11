@@ -16,7 +16,7 @@ pytorch3d==0.7.3
 #   export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9+PTX"
 #   export FORCE_CUDA=1
 ninja
-pointnet2_ops @ git+https://github.com/ma-xu/pointMLP-pytorch.git#subdirectory=pointnet2_ops_lib
+# pointnet2_ops @ git+https://github.com/ma-xu/pointMLP-pytorch.git#subdirectory=pointnet2_ops_lib
 
 absl-py==2.3.1
 addict==2.4.0

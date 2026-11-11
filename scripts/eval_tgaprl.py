@@ -295,10 +295,13 @@ if __name__ == "__main__":
                 env = NormalizeBoxActionWrapper(env)
                 if is_goal_aux:
                     n_stack = cfg.get("n_stack", 4)
+                    temporal_mode = cfg.get("temporal_mode", "windowed")
+                    from custom_sac import FrameStackObsWrapper, default_stack_keys
                     if n_stack > 1:
-                        from custom_sac import FrameStackObsWrapper, default_stack_keys
-                        stack_keys = default_stack_keys(env.observation_space)
+                        stack_keys = default_stack_keys(env.observation_space, temporal_mode=temporal_mode)
                         env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
+                    else:
+                        env = FrameStackObsWrapper(env, n_stack=1, stack_keys=[])
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
