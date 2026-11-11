@@ -70,7 +70,7 @@ if __name__ == "__main__":
     n_stack = args.n_stack if args.n_stack is not None else cfg.get("n_stack", 4 if is_goal_aux else 1)
     cfg["n_stack"] = n_stack
 
-    temporal_mode = args.temporal_mode or cfg.get("temporal_mode", "decoupled" if args.use_lstm else "windowed")
+    temporal_mode = args.temporal_mode or cfg.get("temporal_mode", "windowed")
     lstm_hidden_dim = args.lstm_hidden_dim or cfg.get("lstm_hidden_dim", 64)
     cfg["temporal_mode"] = temporal_mode
     cfg["lstm_hidden_dim"] = lstm_hidden_dim

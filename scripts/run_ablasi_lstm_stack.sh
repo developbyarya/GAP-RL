@@ -17,8 +17,7 @@ export PYTHONPATH="$REPO_ROOT:$REPO_ROOT/gap_rl/algorithms/scripts:$REPO_ROOT/ga
 
 # Konfigurasi Environment & Python interpreter
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-CONFIG_NAME="${CONFIG_NAME:-egopoints_ur85_bezier2d_decoupled_lstm}"
-TEMPORAL_MODE="${TEMPORAL_MODE:-decoupled}"
+CONFIG_NAME="${CONFIG_NAME:-egopoints_ur85_bezier2d_goalaux}"
 
 # Parameter ablasi n_stack
 STACK_PARAMS=(1 2 8)
@@ -53,7 +52,6 @@ GEN_TRAJ_MODES=("bezier2d" "random2d")
 echo "=================================================================="
 echo " GAP-RL CustomSAC Ablasi LSTM n_stack: (${STACK_PARAMS[*]})"
 echo " Config        : $CONFIG_NAME"
-echo " Temporal Mode : $TEMPORAL_MODE"
 echo " Eval Seeds    : (${SEEDS[*]})"
 echo " Eval Datasets : (${EVAL_DATASETS[*]})"
 echo " Traj Modes    : (${GEN_TRAJ_MODES[*]})"
@@ -70,11 +68,10 @@ for n in "${STACK_PARAMS[@]}"; do
     echo " Timestamp      : $TIMESTAMP"
     echo "##################################################################"
 
-    # Jalankan training CustomSAC
+    # Jalankan training CustomSAC (LSTM windowed)
     $PYTHON_BIN gap_rl/algorithms/scripts/sac_train.py \
         --config-name "$CONFIG_NAME" \
         --use-lstm \
-        --temporal-mode "$TEMPORAL_MODE" \
         --n-stack "$n" \
         --exp-suffix "$EXP_PREFIX" \
         --timestamp "$TIMESTAMP"
