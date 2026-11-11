@@ -18,4 +18,10 @@ pip install pytorch3d==0.7.3 -f https://dl.fbaipublicfiles.com/pytorch3d/packagi
 echo "📚 Installing the rest of the requirements..."
 pip install -r working_requirements.txt
 
+echo "🎯 Installing graspnetAPI with --no-deps..."
+pip install graspnetAPI --no-deps
+
+echo "🔒 Enforcing numpy 1.23.5..."
+pip install "numpy==1.23.5"
+
 echo "✅ Python dependencies installed successfully!"
