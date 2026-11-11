@@ -23,8 +23,28 @@ TEMPORAL_MODE="${TEMPORAL_MODE:-decoupled}"
 # Parameter ablasi n_stack
 STACK_PARAMS=(1 2 8)
 
-# 10 random seed untuk evaluasi
-SEEDS=(1029 1030 1031 1032 1033 1034 1035 1036 1037 1038)
+# Konfigurasi Evaluasi Random Seeds
+# Jika SEEDS tidak di-set di environment, otomatis men-generate 10 random seed unik.
+NUM_SEEDS="${NUM_SEEDS:-10}"
+RANDOMIZE_PER_STACK="${RANDOMIZE_PER_STACK:-false}"  # Set true jika ingin seed baru untuk tiap n_stack
+
+generate_random_seeds() {
+    $PYTHON_BIN -c "
+import random
+seeds = set()
+while len(seeds) < $NUM_SEEDS:
+    seeds.add(random.randint(1000, 999999))
+for s in sorted(seeds):
+    print(s)
+"
+}
+
+if [ -z "${SEEDS:-}" ]; then
+    mapfile -t SEEDS < <(generate_random_seeds)
+else
+    # Jika user ingin mengoper seed custom via environment variable
+    IFS=' ' read -r -a SEEDS <<< "$SEEDS"
+fi
 
 # Dataset dan mode trajektori untuk evaluasi
 EVAL_DATASETS=("ycb_train" "ycb_eval" "graspnet_eval")
@@ -91,11 +111,19 @@ for n in "${STACK_PARAMS[@]}"; do
         fi
     fi
 
+    if [ "$RANDOMIZE_PER_STACK" = "true" ]; then
+        mapfile -t SEEDS < <(generate_random_seeds)
+    fi
+
+    # Simpan daftar random seed yang digunakan ke dalam folder run
+    printf "%s\n" "${SEEDS[@]}" > "$RUN_DIR/eval_seeds.txt"
+
     echo ""
     echo "##################################################################"
     echo " [2/2] Memulai Evaluasi dengan 10 Random Seeds"
     echo " Model Checkpoint: $MODEL_NAME"
     echo " Seeds           : ${SEEDS[*]}"
+    echo " Disimpan di     : $RUN_DIR/eval_seeds.txt"
     echo "##################################################################"
 
     # Jalankan evaluasi LocalGrasp & RL policy
