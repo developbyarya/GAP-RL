@@ -65,7 +65,7 @@ numpy==1.23.5
 open3d==0.17.0
 opencv-python==4.10.0.84
 packaging
-pandas
+pandas==1.5.3
 pillow
 platformdirs==4.4.0
 plotly==6.8.0
