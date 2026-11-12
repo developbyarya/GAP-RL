@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
         if args.run_dir is not None:
             log_dir = os.path.abspath(args.run_dir)
-            log_path = os.path.basename(log_dir)
+            log_path = args.run_dir.rstrip("/")
         elif args.timestamp is not None:
             log_path = glob.glob(f"{args.timestamp}*")[0]
             log_dir = str(ALGORITHM_DIR / f"scripts/{log_path}")
