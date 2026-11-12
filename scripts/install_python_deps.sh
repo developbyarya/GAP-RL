@@ -21,6 +21,20 @@ pip install -r working_requirements.txt
 echo "🎯 Installing graspnetAPI with --no-deps..."
 pip install graspnetAPI --no-deps
 
+echo "⚡ Building & installing pointnet2_ops (PointNet++ CUDA ops for LocalGrasp)..."
+pip install ninja
+if ! python -c "import pointnet2_ops" 2>/dev/null; then
+    if [ ! -d "/tmp/pointMLP-pytorch" ]; then
+        git clone https://github.com/ma-xu/pointMLP-pytorch.git /tmp/pointMLP-pytorch
+    fi
+    (
+        cd /tmp/pointMLP-pytorch/pointnet2_ops_lib
+        export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9+PTX"
+        export FORCE_CUDA=1
+        pip install --no-build-isolation .
+    )
+fi
+
 echo "🔒 Enforcing numpy 1.23.5..."
 pip install "numpy==1.23.5"
 
