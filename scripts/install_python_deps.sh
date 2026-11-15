@@ -21,6 +21,9 @@ pip install -r working_requirements.txt
 echo "🎯 Installing graspnetAPI with --no-deps..."
 pip install graspnetAPI --no-deps
 
+echo "✂️ Installing grasp-nms..."
+pip install grasp-nms
+
 echo "⚡ Building & installing pointnet2_ops (PointNet++ CUDA ops for LocalGrasp)..."
 pip install ninja
 if ! python -c "import pointnet2_ops" 2>/dev/null; then
