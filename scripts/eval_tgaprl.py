@@ -293,15 +293,47 @@ if __name__ == "__main__":
                     device=cfg["device"],
                 )
                 env = NormalizeBoxActionWrapper(env)
+
+                # Determine model_path early so observation space can be verified / adapted
+                model_path = os.path.join(log_dir, args.model_name)
+                if not os.path.exists(model_path + ".zip") and not os.path.exists(model_path):
+                    if os.path.exists(os.path.join(log_dir, "final_model.zip")):
+                        model_path = os.path.join(log_dir, "final_model")
+                    elif os.path.exists(os.path.join(log_dir, "best_checkpoint", "best_model.zip")):
+                        model_path = os.path.join(log_dir, "best_checkpoint", "best_model")
+
                 if is_goal_aux:
-                    n_stack = cfg.get("n_stack", 4)
                     temporal_mode = cfg.get("temporal_mode", "windowed")
                     from custom_sac import FrameStackObsWrapper, default_stack_keys
-                    if n_stack > 1:
+                    from stable_baselines3.common.save_util import load_from_zip_file
+
+                    # Automatically detect n_stack from checkpoint if possible
+                    ckpt_n_stack = None
+                    try:
+                        full_model_zip = model_path if model_path.endswith(".zip") else model_path + ".zip"
+                        ckpt_d, _, _ = load_from_zip_file(full_model_zip, device="cpu", custom_objects={"action_space": env.action_space})
+                        if "observation_space" in ckpt_d and hasattr(ckpt_d["observation_space"], "spaces"):
+                            for k in ["tcp_pose", "action", "prev_action", "gripper_pos"]:
+                                if k in ckpt_d["observation_space"].spaces and k in env.observation_space.spaces:
+                                    sp = ckpt_d["observation_space"].spaces[k]
+                                    raw_dim = len(env.observation_space.spaces[k].shape)
+                                    if len(sp.shape) > raw_dim:
+                                        ckpt_n_stack = sp.shape[0]
+                                    else:
+                                        ckpt_n_stack = 0
+                                    break
+                    except Exception:
+                        pass
+
+                    if ckpt_n_stack is not None:
+                        n_stack = ckpt_n_stack
+                    else:
+                        n_stack = cfg.get("n_stack", 4)
+
+                    if n_stack >= 1:
                         stack_keys = default_stack_keys(env.observation_space, temporal_mode=temporal_mode)
                         env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
-                    else:
-                        env = FrameStackObsWrapper(env, n_stack=1, stack_keys=[])
+
                 para = {
                     "camera_modes": camera_modes,
                     "add_noise": args.add_noise
@@ -318,13 +350,7 @@ if __name__ == "__main__":
                     save_on_reset=True,
                     clean_on_close=True,
                 )
-                # Note: load RL model, it will change record._main_seed
-                model_path = os.path.join(log_dir, args.model_name)
-                if not os.path.exists(model_path + ".zip"):
-                    # Fallback if specific steps model doesn't exist but final_model exists
-                    if os.path.exists(os.path.join(log_dir, "final_model.zip")):
-                        model_path = os.path.join(log_dir, "final_model")
-                        
+
                 if is_goal_aux:
                     from custom_sac import CustomSAC
                     load_cls = CustomSAC
@@ -342,19 +368,21 @@ if __name__ == "__main__":
                                         print_system_info=False
                                         )
                 except ValueError as e:
-                    import zipfile, json, cloudpickle, base64
-                    with zipfile.ZipFile(model_path + ".zip" if not model_path.endswith('.zip') else model_path, "r") as archive:
-                        data_json = archive.read("data").decode("utf-8")
-                        data = json.loads(data_json)
-                        obs_space_b64 = data["observation_space"]
-                    obs_space = cloudpickle.loads(base64.b64decode(obs_space_b64))
                     print("\n!!! OBSERVATION SPACE MISMATCH !!!")
-                    print("EVAL SCRIPT EXPECTS (env.observation_space):")
+                    print(f"Error details: {e}")
+                    print("EVAL SCRIPT HAS (env.observation_space):")
                     for k, v in record_env.observation_space.spaces.items():
                         print(f"  {k}: {v.shape}")
-                    print("\nSAVED MODEL EXPECTS (data['observation_space']):")
-                    for k, v in obs_space.spaces.items():
-                        print(f"  {k}: {v.shape}")
+                    try:
+                        from stable_baselines3.common.save_util import load_from_zip_file
+                        full_model_zip = model_path if model_path.endswith(".zip") else model_path + ".zip"
+                        ckpt_d, _, _ = load_from_zip_file(full_model_zip, device="cpu", custom_objects={"action_space": record_env.action_space})
+                        if "observation_space" in ckpt_d and hasattr(ckpt_d["observation_space"], "spaces"):
+                            print("\nSAVED MODEL EXPECTS (model.observation_space):")
+                            for k, v in ckpt_d["observation_space"].spaces.items():
+                                print(f"  {k}: {v.shape}")
+                    except Exception as err:
+                        print(f"Could not inspect saved model observation space: {err}")
                     print("!!! ================================ !!!\n")
                     raise
 

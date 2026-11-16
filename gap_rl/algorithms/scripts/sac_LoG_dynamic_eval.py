@@ -329,14 +329,10 @@ if __name__ == "__main__":
                     n_stack = cfg.get("n_stack", 1)
 
                 from custom_sac import FrameStackObsWrapper, default_stack_keys
-                if n_stack > 1:
+                if n_stack >= 1 and is_goal_aux:
                     temporal_mode = cfg.get("temporal_mode", "windowed")
                     stack_keys = default_stack_keys(env.observation_space, temporal_mode=temporal_mode)
                     env = FrameStackObsWrapper(env, n_stack=n_stack, stack_keys=stack_keys)
-                else:
-                    n_stack = 1
-                    stack_keys = []
-                    env = FrameStackObsWrapper(env, n_stack=1, stack_keys=[])
 
                 para = {
                     "camera_modes": camera_modes,
