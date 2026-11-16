@@ -482,6 +482,7 @@ test_sapien_pts.py
 
 # Training runs & model checkpoints
 runs/
+ablasi_*/
 lstm_result/
 videos/
 20260701_*/
